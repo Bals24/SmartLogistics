@@ -1,0 +1,455 @@
+-- ============================================================
+-- SMART LOGISTICS & FLEET MANAGEMENT
+-- PostgreSQL 18
+-- ============================================================
+
+-- Nettoyage si nécessaire
+DROP TABLE IF EXISTS maintenance CASCADE;
+DROP TABLE IF EXISTS incidents CASCADE;
+DROP TABLE IF EXISTS livraisons CASCADE;
+DROP TABLE IF EXISTS itineraire_etapes CASCADE;
+DROP TABLE IF EXISTS itineraires CASCADE;
+DROP TABLE IF EXISTS colis CASCADE;
+DROP TABLE IF EXISTS commandes CASCADE;
+DROP TABLE IF EXISTS vehicules CASCADE;
+DROP TABLE IF EXISTS chauffeurs CASCADE;
+DROP TABLE IF EXISTS entrepots CASCADE;
+DROP TABLE IF EXISTS clients CASCADE;
+
+
+-- ============================================================
+-- 1. CLIENTS
+-- ============================================================
+
+CREATE TABLE clients (
+    id BIGSERIAL PRIMARY KEY,
+    nom VARCHAR(100) NOT NULL,
+    prenom VARCHAR(100),
+    telephone VARCHAR(30),
+    email VARCHAR(150) UNIQUE,
+    adresse TEXT,
+    ville VARCHAR(100),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+
+-- ============================================================
+-- 2. ENTREPÔTS
+-- ============================================================
+
+CREATE TABLE entrepots (
+    id BIGSERIAL PRIMARY KEY,
+    nom VARCHAR(150) NOT NULL,
+    adresse TEXT,
+    ville VARCHAR(100),
+    capacite INTEGER NOT NULL DEFAULT 0,
+    stock_actuel INTEGER NOT NULL DEFAULT 0,
+    statut VARCHAR(30) NOT NULL DEFAULT 'ACTIF',
+
+    CONSTRAINT chk_entrepot_capacite
+        CHECK (capacite >= 0),
+
+    CONSTRAINT chk_entrepot_stock
+        CHECK (stock_actuel >= 0 AND stock_actuel <= capacite)
+);
+
+
+-- ============================================================
+-- 3. VÉHICULES
+-- ============================================================
+
+CREATE TABLE vehicules (
+    id BIGSERIAL PRIMARY KEY,
+    immatriculation VARCHAR(30) NOT NULL UNIQUE,
+    marque VARCHAR(80),
+    modele VARCHAR(80),
+    type VARCHAR(50),
+    capacite_kg NUMERIC(10,2) NOT NULL DEFAULT 0,
+    kilometrage NUMERIC(12,2) NOT NULL DEFAULT 0,
+    statut VARCHAR(30) NOT NULL DEFAULT 'DISPONIBLE',
+
+    CONSTRAINT chk_vehicule_capacite
+        CHECK (capacite_kg >= 0),
+
+    CONSTRAINT chk_vehicule_kilometrage
+        CHECK (kilometrage >= 0)
+);
+
+
+-- ============================================================
+-- 4. CHAUFFEURS
+-- ============================================================
+
+CREATE TABLE chauffeurs (
+    id BIGSERIAL PRIMARY KEY,
+    nom VARCHAR(100) NOT NULL,
+    prenom VARCHAR(100),
+    telephone VARCHAR(30),
+    numero_permis VARCHAR(80) NOT NULL UNIQUE,
+    type_permis VARCHAR(30),
+    date_embauche DATE,
+    statut VARCHAR(30) NOT NULL DEFAULT 'DISPONIBLE'
+);
+
+
+-- ============================================================
+-- 5. COMMANDES
+-- ============================================================
+
+CREATE TABLE commandes (
+    id BIGSERIAL PRIMARY KEY,
+    reference VARCHAR(50) NOT NULL UNIQUE,
+    client_id BIGINT NOT NULL,
+    entrepot_id BIGINT,
+
+    date_commande TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    date_livraison_prevue TIMESTAMP,
+
+    adresse_livraison TEXT NOT NULL,
+    ville_livraison VARCHAR(100),
+
+    statut VARCHAR(30) NOT NULL DEFAULT 'EN_ATTENTE',
+    montant NUMERIC(12,2) DEFAULT 0,
+
+    CONSTRAINT fk_commande_client
+        FOREIGN KEY (client_id)
+        REFERENCES clients(id)
+        ON DELETE RESTRICT,
+
+    CONSTRAINT fk_commande_entrepot
+        FOREIGN KEY (entrepot_id)
+        REFERENCES entrepots(id)
+        ON DELETE SET NULL,
+
+    CONSTRAINT chk_commande_montant
+        CHECK (montant >= 0)
+);
+
+
+-- ============================================================
+-- 6. COLIS
+-- ============================================================
+
+CREATE TABLE colis (
+    id BIGSERIAL PRIMARY KEY,
+    reference VARCHAR(50) NOT NULL UNIQUE,
+    commande_id BIGINT NOT NULL,
+
+    description TEXT,
+    poids_kg NUMERIC(10,2) NOT NULL DEFAULT 0,
+    longueur_cm NUMERIC(10,2),
+    largeur_cm NUMERIC(10,2),
+    hauteur_cm NUMERIC(10,2),
+
+    statut VARCHAR(30) NOT NULL DEFAULT 'EN_ATTENTE',
+
+    CONSTRAINT fk_colis_commande
+        FOREIGN KEY (commande_id)
+        REFERENCES commandes(id)
+        ON DELETE CASCADE,
+
+    CONSTRAINT chk_colis_poids
+        CHECK (poids_kg >= 0),
+
+    CONSTRAINT chk_colis_dimensions
+        CHECK (
+            (longueur_cm IS NULL OR longueur_cm >= 0)
+            AND
+            (largeur_cm IS NULL OR largeur_cm >= 0)
+            AND
+            (hauteur_cm IS NULL OR hauteur_cm >= 0)
+        )
+);
+
+
+-- ============================================================
+-- 7. ITINÉRAIRES
+-- ============================================================
+
+CREATE TABLE itineraires (
+    id BIGSERIAL PRIMARY KEY,
+    nom VARCHAR(150) NOT NULL,
+    origine VARCHAR(150) NOT NULL,
+    destination VARCHAR(150) NOT NULL,
+
+    distance_km NUMERIC(10,2) NOT NULL DEFAULT 0,
+    duree_minutes INTEGER NOT NULL DEFAULT 0,
+
+    statut VARCHAR(30) NOT NULL DEFAULT 'ACTIF',
+
+    CONSTRAINT chk_itineraire_distance
+        CHECK (distance_km >= 0),
+
+    CONSTRAINT chk_itineraire_duree
+        CHECK (duree_minutes >= 0)
+);
+
+
+-- ============================================================
+-- 8. ÉTAPES D'ITINÉRAIRES
+-- ============================================================
+
+CREATE TABLE itineraire_etapes (
+    id BIGSERIAL PRIMARY KEY,
+    itineraire_id BIGINT NOT NULL,
+
+    ordre INTEGER NOT NULL,
+    nom_point VARCHAR(150) NOT NULL,
+
+    latitude NUMERIC(10,7),
+    longitude NUMERIC(10,7),
+
+    CONSTRAINT fk_etape_itineraire
+        FOREIGN KEY (itineraire_id)
+        REFERENCES itineraires(id)
+        ON DELETE CASCADE,
+
+    CONSTRAINT uq_etape_ordre
+        UNIQUE (itineraire_id, ordre),
+
+    CONSTRAINT chk_etape_ordre
+        CHECK (ordre > 0)
+);
+
+
+-- ============================================================
+-- 9. LIVRAISONS
+-- ============================================================
+
+CREATE TABLE livraisons (
+    id BIGSERIAL PRIMARY KEY,
+
+    commande_id BIGINT NOT NULL,
+    chauffeur_id BIGINT,
+    vehicule_id BIGINT,
+    itineraire_id BIGINT,
+
+    date_depart TIMESTAMP,
+    date_livraison TIMESTAMP,
+
+    statut VARCHAR(30) NOT NULL DEFAULT 'PLANIFIEE',
+
+    adresse_depart TEXT,
+    adresse_arrivee TEXT,
+
+    CONSTRAINT fk_livraison_commande
+        FOREIGN KEY (commande_id)
+        REFERENCES commandes(id)
+        ON DELETE CASCADE,
+
+    CONSTRAINT fk_livraison_chauffeur
+        FOREIGN KEY (chauffeur_id)
+        REFERENCES chauffeurs(id)
+        ON DELETE SET NULL,
+
+    CONSTRAINT fk_livraison_vehicule
+        FOREIGN KEY (vehicule_id)
+        REFERENCES vehicules(id)
+        ON DELETE SET NULL,
+
+    CONSTRAINT fk_livraison_itineraire
+        FOREIGN KEY (itineraire_id)
+        REFERENCES itineraires(id)
+        ON DELETE SET NULL
+);
+
+
+-- ============================================================
+-- 10. INCIDENTS
+-- ============================================================
+
+CREATE TABLE incidents (
+    id BIGSERIAL PRIMARY KEY,
+
+    livraison_id BIGINT,
+    vehicule_id BIGINT,
+    chauffeur_id BIGINT,
+
+    type VARCHAR(100) NOT NULL,
+    description TEXT NOT NULL,
+
+    gravite VARCHAR(30) NOT NULL DEFAULT 'MOYENNE',
+    statut VARCHAR(30) NOT NULL DEFAULT 'OUVERT',
+
+    date_incident TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    date_resolution TIMESTAMP,
+
+    CONSTRAINT fk_incident_livraison
+        FOREIGN KEY (livraison_id)
+        REFERENCES livraisons(id)
+        ON DELETE SET NULL,
+
+    CONSTRAINT fk_incident_vehicule
+        FOREIGN KEY (vehicule_id)
+        REFERENCES vehicules(id)
+        ON DELETE SET NULL,
+
+    CONSTRAINT fk_incident_chauffeur
+        FOREIGN KEY (chauffeur_id)
+        REFERENCES chauffeurs(id)
+        ON DELETE SET NULL
+);
+
+
+-- ============================================================
+-- 11. MAINTENANCE
+-- ============================================================
+
+CREATE TABLE maintenance (
+    id BIGSERIAL PRIMARY KEY,
+
+    vehicule_id BIGINT NOT NULL,
+
+    type VARCHAR(100) NOT NULL,
+    description TEXT,
+
+    date_planifiee DATE,
+    date_realisation DATE,
+
+    cout NUMERIC(12,2) DEFAULT 0,
+
+    statut VARCHAR(30) NOT NULL DEFAULT 'PLANIFIEE',
+
+    CONSTRAINT fk_maintenance_vehicule
+        FOREIGN KEY (vehicule_id)
+        REFERENCES vehicules(id)
+        ON DELETE CASCADE,
+
+    CONSTRAINT chk_maintenance_cout
+        CHECK (cout >= 0)
+);
+
+
+-- ============================================================
+-- INDEX
+-- ============================================================
+
+CREATE INDEX idx_commandes_client
+    ON commandes(client_id);
+
+CREATE INDEX idx_commandes_entrepot
+    ON commandes(entrepot_id);
+
+CREATE INDEX idx_colis_commande
+    ON colis(commande_id);
+
+CREATE INDEX idx_livraisons_commande
+    ON livraisons(commande_id);
+
+CREATE INDEX idx_livraisons_chauffeur
+    ON livraisons(chauffeur_id);
+
+CREATE INDEX idx_livraisons_vehicule
+    ON livraisons(vehicule_id);
+
+CREATE INDEX idx_incidents_livraison
+    ON incidents(livraison_id);
+
+CREATE INDEX idx_incidents_vehicule
+    ON incidents(vehicule_id);
+
+CREATE INDEX idx_maintenance_vehicule
+    ON maintenance(vehicule_id);
+
+
+-- ============================================================
+-- DONNÉES DE TEST
+-- ============================================================
+
+INSERT INTO clients (nom, prenom, telephone, email, adresse, ville)
+VALUES
+('Rakoto', 'Jean', '0340000001', 'jean@example.com', 'Lot 12', 'Antananarivo'),
+('Rabe', 'Marie', '0340000002', 'marie@example.com', 'Lot 25', 'Antsirabe'),
+('Andria', 'Paul', '0340000003', 'paul@example.com', 'Lot 45', 'Toamasina');
+
+
+INSERT INTO entrepots
+(nom, adresse, ville, capacite, stock_actuel, statut)
+VALUES
+('Entrepôt Central', 'Zone Industrielle', 'Antananarivo', 1000, 350, 'ACTIF'),
+('Entrepôt Sud', 'Route Nationale 7', 'Antsirabe', 500, 120, 'ACTIF');
+
+
+INSERT INTO vehicules
+(immatriculation, marque, modele, type, capacite_kg, kilometrage, statut)
+VALUES
+('1234 TBA', 'Toyota', 'Hilux', 'UTILITAIRE', 1000, 45000, 'DISPONIBLE'),
+('5678 TBB', 'Renault', 'Master', 'CAMION', 2500, 72000, 'EN_SERVICE'),
+('9012 TBC', 'Ford', 'Transit', 'UTILITAIRE', 1500, 38000, 'DISPONIBLE');
+
+
+INSERT INTO chauffeurs
+(nom, prenom, telephone, numero_permis, type_permis, date_embauche, statut)
+VALUES
+('Rakoto', 'Michel', '0341111111', 'PERM-001', 'B', '2024-01-15', 'DISPONIBLE'),
+('Ranaivo', 'David', '0342222222', 'PERM-002', 'C', '2023-06-10', 'EN_SERVICE');
+
+
+INSERT INTO itineraires
+(nom, origine, destination, distance_km, duree_minutes, statut)
+VALUES
+('Tana → Antsirabe', 'Antananarivo', 'Antsirabe', 170, 240, 'ACTIF'),
+('Tana → Toamasina', 'Antananarivo', 'Toamasina', 350, 480, 'ACTIF');
+
+
+INSERT INTO commandes
+(reference, client_id, entrepot_id, adresse_livraison, ville_livraison, statut, montant)
+VALUES
+('CMD-0001', 1, 1, 'Lot 12', 'Antananarivo', 'EN_ATTENTE', 150000),
+('CMD-0002', 2, 1, 'Lot 25', 'Antsirabe', 'PREPAREE', 275000),
+('CMD-0003', 3, 2, 'Lot 45', 'Toamasina', 'EN_COURS', 420000);
+
+
+INSERT INTO colis
+(reference, commande_id, description, poids_kg, longueur_cm, largeur_cm, hauteur_cm, statut)
+VALUES
+('COL-0001', 1, 'Colis électronique', 5.5, 30, 20, 15, 'PRET'),
+('COL-0002', 2, 'Colis vêtements', 12, 50, 40, 30, 'PRET'),
+('COL-0003', 3, 'Matériel informatique', 18, 60, 45, 35, 'EN_TRANSIT');
+
+
+INSERT INTO livraisons
+(commande_id, chauffeur_id, vehicule_id, itineraire_id,
+ date_depart, statut, adresse_depart, adresse_arrivee)
+VALUES
+(2, 1, 1, 1, CURRENT_TIMESTAMP, 'PLANIFIEE',
+ 'Entrepôt Central', 'Antsirabe');
+
+
+INSERT INTO maintenance
+(vehicule_id, type, description, date_planifiee, cout, statut)
+VALUES
+(1, 'VIDANGE', 'Vidange moteur et changement filtre',
+ CURRENT_DATE + INTERVAL '30 days', 150000, 'PLANIFIEE');
+
+
+INSERT INTO incidents
+(livraison_id, vehicule_id, type, description, gravite, statut)
+VALUES
+(NULL, 2, 'PANNE', 'Problème moteur détecté',
+ 'MOYENNE', 'OUVERT');
+
+
+-- ============================================================
+-- VÉRIFICATION
+-- ============================================================
+
+SELECT 'clients' AS table_name, COUNT(*) AS nombre FROM clients
+UNION ALL
+SELECT 'entrepots', COUNT(*) FROM entrepots
+UNION ALL
+SELECT 'vehicules', COUNT(*) FROM vehicules
+UNION ALL
+SELECT 'chauffeurs', COUNT(*) FROM chauffeurs
+UNION ALL
+SELECT 'commandes', COUNT(*) FROM commandes
+UNION ALL
+SELECT 'colis', COUNT(*) FROM colis
+UNION ALL
+SELECT 'itineraires', COUNT(*) FROM itineraires
+UNION ALL
+SELECT 'livraisons', COUNT(*) FROM livraisons
+UNION ALL
+SELECT 'incidents', COUNT(*) FROM incidents
+UNION ALL
+SELECT 'maintenance', COUNT(*) FROM maintenance;

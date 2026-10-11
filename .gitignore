@@ -1,0 +1,32 @@
+# Fichiers de compilation CMake
+build/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+compile_commands.json
+.ninja_deps
+.ninja_log
+
+# Exécutables et fichiers compilés
+*.exe
+*.o
+*.obj
+*.a
+*.dll
+*.pdb
+
+# Configuration locale des éditeurs
+.vscode/
+.idea/
+
+# Fichiers système
+Thumbs.db
+.DS_Store
+
+# Journaux
+*.log
+
+# Secrets et variables d'environnement
+.env
+.env.*
+!.env.example

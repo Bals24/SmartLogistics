@@ -1,0 +1,43 @@
+[
+  {
+    "capaciteKg": 5000.0,
+    "carburantPct": 72.0,
+    "immatriculation": "C-001",
+    "kilometrage": 126000.0,
+    "marque": "Isuzu",
+    "modele": "FVR",
+    "statut": 2,
+    "type": "CAMION"
+  },
+  {
+    "capaciteKg": 1200.0,
+    "carburantPct": 90.0,
+    "immatriculation": "F-001",
+    "kilometrage": 58000.0,
+    "marque": "Renault",
+    "modele": "Master",
+    "statut": 0,
+    "type": "FOURGON"
+  },
+  {
+    "capaciteKg": 40.0,
+    "carburantPct": 100.0,
+    "immatriculation": "M-001",
+    "kilometrage": 12000.0,
+    "marque": "Yamaha",
+    "modele": "YBR125",
+    "statut": 0,
+    "type": "MOTO"
+  },
+  {
+    "capaciteKg": 4000.0,
+    "carburantPct": 60.0,
+    "immatriculation": "R-001",
+    "kilometrage": 95000.0,
+    "marque": "Mercedes",
+    "modele": "Actros",
+    "statut": 0,
+    "temperatureConsigneC": 4.0,
+    "type": "VEHICULE_FRIGORIFIQUE"
+  }
+]

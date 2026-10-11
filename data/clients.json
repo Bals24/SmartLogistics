@@ -1,0 +1,14 @@
+[
+  {
+    "adresse": "Antananarivo",
+    "id": "CLT-001",
+    "nom": "Entreprise X",
+    "telephone": "034 00 000 01"
+  },
+  {
+    "adresse": "Antananarivo",
+    "id": "CLT-002",
+    "nom": "Rakoto Import",
+    "telephone": "033 00 000 02"
+  }
+]
