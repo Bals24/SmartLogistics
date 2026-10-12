@@ -7,11 +7,15 @@
 #include "entities/Commande.hpp"
 #include "factories/ColisFactory.hpp"
 #include "factories/VehiculeFactory.hpp"
+#include "graphe/Dijkstra.hpp"
+#include "graphe/ReseauRoutier.hpp"
 #include "services/AllocateurRessources.hpp"
+#include "strategies/StrategiesConcretes.hpp"
 
 #include <QCloseEvent>
 #include <QDate>
 #include <QFrame>
+#include <QInputDialog>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLabel>
@@ -1378,6 +1382,14 @@ QWidget* MainWindow::createLivraisonsPage()
 
     search->addWidget(affecter);
 
+    QPushButton* terminer =
+        new QPushButton("Terminer la livraison");
+
+    connect(terminer, &QPushButton::clicked,
+            this, [this]() { terminerLivraison(); });
+
+    search->addWidget(terminer);
+
     layout->addLayout(search);
 
     livraisonsTable_ = new QTableWidget();
@@ -1497,11 +1509,19 @@ QWidget* MainWindow::createItinerairesPage()
     search->addWidget(rechercher);
     search->addWidget(actualiser);
 
+    QPushButton* calculer =
+        new QPushButton("Calculer l'itinéraire");
+
+    connect(calculer, &QPushButton::clicked,
+            this, [this]() { calculerItineraire(); });
+
+    search->addWidget(calculer);
+
     layout->addLayout(search);
 
     itinerairesTable_ = new QTableWidget();
 
-    itinerairesTable_->setColumnCount(6);
+    itinerairesTable_->setColumnCount(7);
 
     itinerairesTable_->setHorizontalHeaderLabels({
         "ID",
@@ -1509,15 +1529,16 @@ QWidget* MainWindow::createItinerairesPage()
         "Destination",
         "Distance",
         "Durée",
-        "Statut"
+        "Statut",
+        "Trajet"
     });
 
     QStringList data = {
-        "ITI-001|Antananarivo|Toamasina|353 km|8h 30|Optimisé",
-        "ITI-002|Antananarivo|Fianarantsoa|410 km|9h 15|Optimisé",
-        "ITI-003|Antananarivo|Mahajanga|570 km|12h|Planifié",
-        "ITI-004|Antananarivo|Antsirabe|170 km|4h|Actif",
-        "ITI-005|Toamasina|Antananarivo|353 km|8h 30|Actif"
+        "ITI-001|Antananarivo|Toamasina|320 km|6h|Optimisé|Antananarivo → Moramanga → Toamasina",
+        "ITI-002|Antananarivo|Fianarantsoa|390 km|7h 30|Optimisé|Antananarivo → Antsirabe → Ambositra → Fianarantsoa",
+        "ITI-003|Antananarivo|Mahajanga|570 km|10h|Planifié|Antananarivo → Maevatanana → Mahajanga",
+        "ITI-004|Antananarivo|Antsirabe|170 km|3h|Actif|Antananarivo → Antsirabe",
+        "ITI-005|Toamasina|Antananarivo|320 km|6h|Actif|Toamasina → Moramanga → Antananarivo"
     };
 
     itinerairesTable_->setRowCount(data.size());
@@ -2720,7 +2741,15 @@ void MainWindow::supprimerIncident()
             QMessageBox::Yes | QMessageBox::No
         ) == QMessageBox::Yes)
     {
+        QStringList ancien;
+        for (int c = 0; c < incidentsTable_->columnCount(); ++c)
+        {
+            const QTableWidgetItem* item = incidentsTable_->item(row, c);
+            ancien << (item ? item->text().trimmed() : QString());
+        }
+
         incidentsTable_->removeRow(row);
+        appliquerCoherence(incidentsTable_, -1, ancien, QStringList());
     }
 }
 
@@ -2788,7 +2817,15 @@ void MainWindow::supprimerMaintenance()
             QMessageBox::Yes | QMessageBox::No
         ) == QMessageBox::Yes)
     {
+        QStringList ancien;
+        for (int c = 0; c < maintenanceTable_->columnCount(); ++c)
+        {
+            const QTableWidgetItem* item = maintenanceTable_->item(row, c);
+            ancien << (item ? item->text().trimmed() : QString());
+        }
+
         maintenanceTable_->removeRow(row);
+        appliquerCoherence(maintenanceTable_, -1, ancien, QStringList());
     }
 }
 
@@ -2841,6 +2878,21 @@ namespace
         "Antananarivo", "Toamasina", "Fianarantsoa", "Mahajanga",
         "Antsirabe", "Toliara", "Antsiranana"
     };
+
+    // Villes du réseau routier (celles que Dijkstra sait relier)
+    QStringList villesDuReseau()
+    {
+        sl::Graphe graphe;
+        sl::construireReseauMalgache(graphe);
+
+        QStringList villes;
+        for (const std::string& ville : graphe.getVilles())
+        {
+            villes << QString::fromStdString(ville);
+        }
+        villes.sort();
+        return villes;
+    }
 
     QStringList valeursDeColonne(const QTableWidget* table, int colonne, bool sansDiese = false)
     {
@@ -2978,11 +3030,12 @@ QList<ChampFormulaire> MainWindow::champsPour(QTableWidget* table) const
     {
         return {
             champ("ID", T::LectureSeule),
-            champ("Départ", T::ChoixEditable, VILLES, {}, true),
-            champ("Destination", T::ChoixEditable, VILLES, {}, true),
+            champ("Départ", T::Choix, villesDuReseau(), {}, true),
+            champ("Destination", T::Choix, villesDuReseau(), {}, true),
             champ("Distance", T::Nombre, {}, " km"),
             champ("Durée (ex : 8h 30)"),
-            champ("Statut", T::Choix, {"Planifié", "Actif", "Optimisé", "Terminé"})
+            champ("Statut", T::Choix, {"Planifié", "Actif", "Optimisé", "Terminé"}),
+            champ("Trajet (calculé)", T::LectureSeule)
         };
     }
 
@@ -3150,6 +3203,8 @@ void MainWindow::ajouterLigne(QTableWidget* table, const QString& prefixe, const
 
     table->selectRow(ligne);
     table->scrollToItem(table->item(ligne, 0));
+
+    appliquerCoherence(table, ligne, QStringList(), valeurs);
 }
 
 void MainWindow::modifierLigne(QTableWidget* table, const QString& titre)
@@ -3185,6 +3240,13 @@ void MainWindow::modifierLigne(QTableWidget* table, const QString& titre)
     valeurs[0] = initiales[0];   // l'identifiant ne change jamais
     completerValeursDerivees(table, valeurs);
 
+    // Départ ou destination modifiés : l'ancien trajet calculé n'est plus valable
+    if (table == itinerairesTable_ && valeurs.size() > 6 && initiales.size() > 2 &&
+        (valeurs[1] != initiales[1] || valeurs[2] != initiales[2]))
+    {
+        valeurs[6].clear();
+    }
+
     // Un client renommé : ses commandes suivent (elles le désignent par son nom)
     if (table == clientsTable_ && initiales.size() > 1 && valeurs[1] != initiales[1])
     {
@@ -3209,6 +3271,8 @@ void MainWindow::modifierLigne(QTableWidget* table, const QString& titre)
             table->setItem(ligne, c, new QTableWidgetItem(valeurs[c]));
         }
     }
+
+    appliquerCoherence(table, ligne, initiales, valeurs);
 }
 
 
@@ -3964,4 +4028,494 @@ void MainWindow::affecterAutomatiquement()
     {
         QMessageBox::warning(this, "Affectation", QString::fromUtf8(e.what()));
     }
+}
+
+
+// ================================================================
+// FIN DE LIVRAISON : libère les ressources et clôture la commande
+// ================================================================
+
+void MainWindow::terminerLivraison()
+{
+    const int ligne = livraisonsTable_->currentRow();
+
+    if (ligne < 0)
+    {
+        QMessageBox::information(
+            this, "Livraison",
+            "Sélectionnez d'abord une livraison « En cours » dans le tableau.");
+        return;
+    }
+
+    const QString statut = enMinuscules(texteDe(livraisonsTable_, ligne, 6));
+    if (statut != "en cours" && statut != "en transit")
+    {
+        QMessageBox::information(
+            this, "Livraison",
+            "Seule une livraison « En cours » ou « En transit » peut être terminée.\n"
+            "Statut actuel : " + texteDe(livraisonsTable_, ligne, 6) +
+            (statut == "planifiée" || statut == "planifiee"
+                 ? QString("\n\n(Une livraison « Planifiée » doit d'abord être affectée.)")
+                 : QString()));
+        return;
+    }
+
+    auto sansDiese = [](QString texte)
+    {
+        texte = texte.trimmed();
+        if (texte.startsWith('#')) texte.remove(0, 1);
+        return texte;
+    };
+
+    const QString codeLivraison = texteDe(livraisonsTable_, ligne, 0);
+    const QString codeCommande  = sansDiese(texteDe(livraisonsTable_, ligne, 1));
+    const QString codeChauffeur = texteDe(livraisonsTable_, ligne, 3);
+    const QString codeVehicule  = texteDe(livraisonsTable_, ligne, 4);
+
+    const auto reponse = QMessageBox::question(
+        this, "Terminer la livraison",
+        QString("Marquer la livraison %1 comme livrée ?\n\n"
+                "Le véhicule %2 et le chauffeur %3 redeviennent disponibles.")
+            .arg(codeLivraison, codeVehicule, codeChauffeur),
+        QMessageBox::Yes | QMessageBox::No);
+
+    if (reponse != QMessageBox::Yes)
+    {
+        return;
+    }
+
+    auto definir = [](QTableWidget* table, int l, int c, const QString& valeur)
+    {
+        if (QTableWidgetItem* item = table->item(l, c))
+            item->setText(valeur);
+        else
+            table->setItem(l, c, new QTableWidgetItem(valeur));
+    };
+
+    definir(livraisonsTable_, ligne, 6, "Livrée");
+
+    // Véhicule et chauffeur redeviennent disponibles
+    for (int r = 0; r < vehiculesTable_->rowCount(); ++r)
+    {
+        if (texteDe(vehiculesTable_, r, 0) == codeVehicule)
+        {
+            definir(vehiculesTable_, r, 5, "Disponible");
+        }
+    }
+
+    for (int r = 0; r < chauffeursTable_->rowCount(); ++r)
+    {
+        if (texteDe(chauffeursTable_, r, 0) == codeChauffeur)
+        {
+            definir(chauffeursTable_, r, 5, "Disponible");
+            definir(chauffeursTable_, r, 4, "Aucun");
+        }
+    }
+
+    // La commande n'est « Livrée » que si TOUTES ses livraisons le sont
+    bool commandeTerminee = true;
+    for (int r = 0; r < livraisonsTable_->rowCount(); ++r)
+    {
+        if (sansDiese(texteDe(livraisonsTable_, r, 1)) != codeCommande) continue;
+
+        const QString s = enMinuscules(texteDe(livraisonsTable_, r, 6));
+        if (s != "livrée" && s != "livree" && s != "annulée" && s != "annulee")
+        {
+            commandeTerminee = false;
+        }
+    }
+
+    if (commandeTerminee)
+    {
+        for (int r = 0; r < commandesTable_->rowCount(); ++r)
+        {
+            if (sansDiese(texteDe(commandesTable_, r, 0)) == codeCommande)
+            {
+                definir(commandesTable_, r, 3, "Livrée");
+            }
+        }
+
+        for (int r = 0; r < colisTable_->rowCount(); ++r)
+        {
+            if (sansDiese(texteDe(colisTable_, r, 1)) == codeCommande)
+            {
+                definir(colisTable_, r, 4, "Livré");
+            }
+        }
+    }
+
+    QMessageBox::information(
+        this, "Livraison terminée",
+        QString("La livraison %1 est terminée.\n\n"
+                "Véhicule %2 et chauffeur %3 : de nouveau disponibles.\n"
+                "Commande %4 : %5")
+            .arg(codeLivraison, codeVehicule, codeChauffeur, codeCommande,
+                 commandeTerminee ? QString("livrée (colis marqués « Livré »).")
+                                  : QString("d'autres livraisons restent à effectuer.")));
+}
+
+
+// ================================================================
+// COHÉRENCE DES STATUTS ENTRE PAGES
+//
+//  Maintenance « En cours »  -> véhicule « Maintenance »
+//  Incident « Ouvert »       -> livraison et commande « Incident »
+//    (Panne / Accident)      -> véhicule « Indisponible »
+//  Fin de maintenance / incident clos / supprimé -> tout est rétabli
+// ================================================================
+
+namespace
+{
+    bool livraisonActive(const QString& statutMinuscules)
+    {
+        return statutMinuscules == "en cours" ||
+               statutMinuscules == "en transit" ||
+               statutMinuscules == "incident";
+    }
+
+    QString valeurColonne(const QStringList& ligne, int colonne)
+    {
+        return colonne < ligne.size() ? ligne[colonne].trimmed() : QString();
+    }
+
+    bool codeUtilisable(const QString& code)
+    {
+        return !code.isEmpty() && enMinuscules(code) != "aucun";
+    }
+
+    void definirCellule(QTableWidget* table, int ligne, int colonne, const QString& valeur)
+    {
+        if (QTableWidgetItem* item = table->item(ligne, colonne))
+        {
+            if (item->text() != valeur) item->setText(valeur);
+        }
+        else
+        {
+            table->setItem(ligne, colonne, new QTableWidgetItem(valeur));
+        }
+    }
+}
+
+void MainWindow::appliquerCoherence(QTableWidget* table, int ligne,
+                                    const QStringList& ancien, const QStringList& nouveau)
+{
+    if (table == maintenanceTable_)
+    {
+        // colonnes : 1 véhicule
+        const QString vNouveau = valeurColonne(nouveau, 1);
+        const QString vAncien  = valeurColonne(ancien, 1);
+
+        if (codeUtilisable(vNouveau)) reevaluerMaintenance(vNouveau, ligne);
+        if (codeUtilisable(vAncien) && vAncien != vNouveau) reevaluerMaintenance(vAncien, -1);
+    }
+
+    if (table == incidentsTable_)
+    {
+        // colonnes : 3 véhicule, 4 chauffeur
+        reevaluerIncidents(valeurColonne(nouveau, 3), valeurColonne(nouveau, 4));
+        reevaluerIncidents(valeurColonne(ancien, 3), valeurColonne(ancien, 4));
+    }
+}
+
+void MainWindow::reevaluerMaintenance(const QString& vehicule, int ligneMaintenance)
+{
+    bool enCours = false;
+    for (int r = 0; r < maintenanceTable_->rowCount(); ++r)
+    {
+        if (texteDe(maintenanceTable_, r, 1) == vehicule &&
+            enMinuscules(texteDe(maintenanceTable_, r, 6)) == "en cours")
+        {
+            enCours = true;
+        }
+    }
+
+    for (int r = 0; r < vehiculesTable_->rowCount(); ++r)
+    {
+        if (texteDe(vehiculesTable_, r, 0) != vehicule) continue;
+
+        const QString statut = enMinuscules(texteDe(vehiculesTable_, r, 5));
+
+        if (enCours)
+        {
+            if (statut == "en mission")
+            {
+                // On n'entretient pas un véhicule qui est sur la route
+                QMessageBox::warning(
+                    this, "Maintenance impossible",
+                    QString("Le véhicule %1 est en mission.\n\n"
+                            "Terminez d'abord sa livraison : la maintenance est remise "
+                            "au statut « Planifiée ».").arg(vehicule));
+
+                if (ligneMaintenance >= 0)
+                {
+                    definirCellule(maintenanceTable_, ligneMaintenance, 6, "Planifiée");
+                }
+            }
+            else
+            {
+                definirCellule(vehiculesTable_, r, 5, "Maintenance");
+            }
+        }
+        else if (statut == "maintenance")
+        {
+            // Fin de maintenance : un incident bloquant peut encore l'immobiliser
+            bool bloque = false;
+            for (int i = 0; i < incidentsTable_->rowCount(); ++i)
+            {
+                const QString type = enMinuscules(texteDe(incidentsTable_, i, 2));
+                if (texteDe(incidentsTable_, i, 3) == vehicule &&
+                    enMinuscules(texteDe(incidentsTable_, i, 6)) == "ouvert" &&
+                    (type == "panne" || type == "accident"))
+                {
+                    bloque = true;
+                }
+            }
+
+            bool enLivraison = false;
+            for (int i = 0; i < livraisonsTable_->rowCount(); ++i)
+            {
+                if (texteDe(livraisonsTable_, i, 4) == vehicule &&
+                    livraisonActive(enMinuscules(texteDe(livraisonsTable_, i, 6))))
+                {
+                    enLivraison = true;
+                }
+            }
+
+            definirCellule(vehiculesTable_, r, 5,
+                           bloque ? "Indisponible"
+                                  : (enLivraison ? "En mission" : "Disponible"));
+        }
+    }
+}
+
+void MainWindow::reevaluerIncidents(const QString& vehicule, const QString& chauffeur)
+{
+    const bool aVehicule  = codeUtilisable(vehicule);
+    const bool aChauffeur = codeUtilisable(chauffeur);
+
+    if (!aVehicule && !aChauffeur)
+    {
+        return;
+    }
+
+    // Incidents ouverts, vus du véhicule et du chauffeur
+    auto incidentOuvert = [this](const QString& v, const QString& c, bool bloquantSeulement)
+    {
+        for (int r = 0; r < incidentsTable_->rowCount(); ++r)
+        {
+            if (enMinuscules(texteDe(incidentsTable_, r, 6)) != "ouvert") continue;
+
+            const QString type = enMinuscules(texteDe(incidentsTable_, r, 2));
+            if (bloquantSeulement && type != "panne" && type != "accident") continue;
+
+            const bool memeVehicule  = codeUtilisable(v) && texteDe(incidentsTable_, r, 3) == v;
+            const bool memeChauffeur = !bloquantSeulement && codeUtilisable(c) &&
+                                       texteDe(incidentsTable_, r, 4) == c;
+
+            if (memeVehicule || memeChauffeur) return true;
+        }
+        return false;
+    };
+
+    // --- Livraisons actives concernées -> « Incident » ou retour « En cours » ---
+    for (int r = 0; r < livraisonsTable_->rowCount(); ++r)
+    {
+        const QString v = texteDe(livraisonsTable_, r, 4);
+        const QString c = texteDe(livraisonsTable_, r, 3);
+
+        const bool concernee = (aVehicule && v == vehicule) || (aChauffeur && c == chauffeur);
+        const QString statut = enMinuscules(texteDe(livraisonsTable_, r, 6));
+        if (!concernee || !livraisonActive(statut)) continue;
+
+        const bool incident = incidentOuvert(v, c, false);
+        QString commandeCode = texteDe(livraisonsTable_, r, 1);
+        if (commandeCode.startsWith('#')) commandeCode.remove(0, 1);
+
+        if (incident && statut != "incident")
+        {
+            definirCellule(livraisonsTable_, r, 6, "Incident");
+
+            for (int k = 0; k < commandesTable_->rowCount(); ++k)
+            {
+                QString code = texteDe(commandesTable_, k, 0);
+                if (code.startsWith('#')) code.remove(0, 1);
+                if (code == commandeCode) definirCellule(commandesTable_, k, 3, "Incident");
+            }
+        }
+        else if (!incident && statut == "incident")
+        {
+            definirCellule(livraisonsTable_, r, 6, "En cours");
+
+            for (int k = 0; k < commandesTable_->rowCount(); ++k)
+            {
+                QString code = texteDe(commandesTable_, k, 0);
+                if (code.startsWith('#')) code.remove(0, 1);
+                if (code == commandeCode &&
+                    enMinuscules(texteDe(commandesTable_, k, 3)) == "incident")
+                {
+                    definirCellule(commandesTable_, k, 3, "En cours");
+                }
+            }
+        }
+    }
+
+    // --- Véhicule : une panne ou un accident ouvert l'immobilise ---
+    if (aVehicule)
+    {
+        const bool bloque = incidentOuvert(vehicule, QString(), true);
+
+        for (int r = 0; r < vehiculesTable_->rowCount(); ++r)
+        {
+            if (texteDe(vehiculesTable_, r, 0) != vehicule) continue;
+
+            const QString statut = enMinuscules(texteDe(vehiculesTable_, r, 5));
+
+            if (bloque && statut != "maintenance" && statut != "indisponible")
+            {
+                definirCellule(vehiculesTable_, r, 5, "Indisponible");
+            }
+            else if (!bloque && statut == "indisponible")
+            {
+                bool enLivraison = false;
+                for (int i = 0; i < livraisonsTable_->rowCount(); ++i)
+                {
+                    if (texteDe(livraisonsTable_, i, 4) == vehicule &&
+                        livraisonActive(enMinuscules(texteDe(livraisonsTable_, i, 6))))
+                    {
+                        enLivraison = true;
+                    }
+                }
+                definirCellule(vehiculesTable_, r, 5, enLivraison ? "En mission" : "Disponible");
+            }
+        }
+    }
+}
+
+
+// ================================================================
+// ITINÉRAIRES : Dijkstra + stratégies (plus court / plus rapide / moins cher)
+// ================================================================
+
+void MainWindow::calculerItineraire()
+{
+    const int ligne = itinerairesTable_->currentRow();
+
+    if (ligne < 0)
+    {
+        QMessageBox::information(
+            this, "Itinéraire",
+            "Sélectionnez d'abord un itinéraire dans le tableau.");
+        return;
+    }
+
+    const QString depart      = texteDe(itinerairesTable_, ligne, 1);
+    const QString destination = texteDe(itinerairesTable_, ligne, 2);
+
+    if (depart == destination)
+    {
+        QMessageBox::information(
+            this, "Itinéraire",
+            "Le départ et la destination sont identiques.");
+        return;
+    }
+
+    sl::Graphe graphe;
+    sl::construireReseauMalgache(graphe);
+
+    for (const QString& ville : {depart, destination})
+    {
+        if (!graphe.contientVille(ville.toStdString()))
+        {
+            QMessageBox::warning(
+                this, "Itinéraire",
+                QString("« %1 » ne fait pas partie du réseau routier.\n\nVilles disponibles :\n%2")
+                    .arg(ville, villesDuReseau().join(", ")));
+            return;
+        }
+    }
+
+    bool ok = false;
+    const QStringList criteres = {
+        "Plus court (distance)", "Plus rapide (durée)", "Moins cher (coût)"
+    };
+    const QString critere = QInputDialog::getItem(
+        this, "Calcul d'itinéraire",
+        QString("%1 → %2\n\nCritère d'optimisation :").arg(depart, destination),
+        criteres, 0, false, &ok);
+
+    if (!ok)
+    {
+        return;
+    }
+
+    const sl::StrategiePlusCourtChemin strategieCourte;
+    const sl::StrategiePlusRapide strategieRapide;
+    const sl::StrategieMoinsCher strategieEconomique;
+
+    const sl::StrategieItineraire* strategie = &strategieCourte;
+    if (critere == criteres[1]) strategie = &strategieRapide;
+    if (critere == criteres[2]) strategie = &strategieEconomique;
+
+    const sl::Itineraire itineraire = sl::calculerPlusCourtChemin(
+        graphe, depart.toStdString(), destination.toStdString(), *strategie);
+
+    if (!itineraire.trouve)
+    {
+        QMessageBox::warning(
+            this, "Itinéraire",
+            QString("Aucun itinéraire praticable entre %1 et %2 "
+                    "(routes bloquées ?).").arg(depart, destination));
+        return;
+    }
+
+    // --- Mise en forme comme dans le tableau ("1 190 km", "8h 30") ---
+    auto groupe = [](long long valeur)
+    {
+        const QString chiffres = QString::number(valeur);
+        QString resultat;
+        int n = 0;
+        for (int i = chiffres.size() - 1; i >= 0; --i)
+        {
+            if (n > 0 && n % 3 == 0) resultat.prepend(' ');
+            resultat.prepend(chiffres[i]);
+            ++n;
+        }
+        return resultat;
+    };
+
+    const int minutes = qRound(itineraire.dureeTotaleHeures * 60.0);
+    QString duree;
+    if (minutes < 60)
+        duree = QString("%1 min").arg(minutes);
+    else if (minutes % 60 == 0)
+        duree = QString("%1h").arg(minutes / 60);
+    else
+        duree = QString("%1h %2").arg(minutes / 60).arg(minutes % 60, 2, 10, QChar('0'));
+
+    QStringList villes;
+    for (const std::string& ville : itineraire.villes)
+    {
+        villes << QString::fromStdString(ville);
+    }
+    const QString trajet = villes.join(" → ");
+    const QString distance = groupe(qRound64(itineraire.distanceTotaleKm)) + " km";
+
+    auto definir = [this, ligne](int colonne, const QString& valeur)
+    {
+        if (QTableWidgetItem* item = itinerairesTable_->item(ligne, colonne))
+            item->setText(valeur);
+        else
+            itinerairesTable_->setItem(ligne, colonne, new QTableWidgetItem(valeur));
+    };
+
+    definir(3, distance);
+    definir(4, duree);
+    definir(5, "Optimisé");
+    definir(6, trajet);
+
+    QMessageBox::information(
+        this, "Itinéraire calculé",
+        QString("%1\n\nTrajet : %2\nDistance : %3\nDurée : %4\nCoût estimé : %5 Ar")
+            .arg(critere, trajet, distance, duree)
+            .arg(groupe(qRound64(itineraire.coutTotalAr))));
 }

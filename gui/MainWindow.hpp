@@ -258,6 +258,15 @@ private:
 
     // Affectation automatique (AllocateurRessources) d'une livraison planifiée
     void affecterAutomatiquement();
+    void terminerLivraison();
+    void calculerItineraire();
+
+    // Cohérence entre pages : un incident ou une maintenance modifie le statut
+    // des véhicules, livraisons et commandes concernés.
+    void appliquerCoherence(QTableWidget* table, int ligne,
+                            const QStringList& ancien, const QStringList& nouveau);
+    void reevaluerIncidents(const QString& vehicule, const QString& chauffeur);
+    void reevaluerMaintenance(const QString& vehicule, int ligneMaintenance);
 
     std::unique_ptr<GuiDatabase> baseDeDonnees_;
     QTimer* sauvegardeTimer_ = nullptr;

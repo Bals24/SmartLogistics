@@ -18,6 +18,7 @@
 #include "services/AllocateurRessources.hpp"
 #include "persistence/PersistanceJSON.hpp"
 #include "utils/Exceptions.hpp"
+#include "graphe/ReseauRoutier.hpp"
 
 using namespace sl;
 
@@ -141,6 +142,27 @@ void testAllocateurChoisitLeVehiculeAdapteMemeGrandeCapacite() {
     verifier(resultat.score > 0.0, "Le score d'un vehicule choisi est positif");
 }
 
+void testReseauRoutierRelieToutesLesVilles() {
+    Graphe graphe;
+    construireReseauMalgache(graphe);
+    StrategiePlusCourtChemin courte;
+
+    Itineraire tana_toamasina = calculerPlusCourtChemin(graphe, "Antananarivo", "Toamasina", courte);
+    verifier(tana_toamasina.trouve && tana_toamasina.villes.size() == 3 &&
+             tana_toamasina.villes[1] == "Moramanga" &&
+             tana_toamasina.distanceTotaleKm == 320.0,
+             "Antananarivo -> Toamasina passe par Moramanga (320 km)");
+
+    Itineraire tana_nord = calculerPlusCourtChemin(graphe, "Toliara", "Antsiranana", courte);
+    verifier(tana_nord.trouve && tana_nord.villes.front() == "Toliara" &&
+             tana_nord.villes.back() == "Antsiranana" &&
+             tana_nord.distanceTotaleKm == 2780.0,
+             "Toliara -> Antsiranana : 2780 km a travers tout le reseau");
+
+    verifier(!calculerPlusCourtChemin(graphe, "Antananarivo", "Atlantis", courte).trouve,
+             "Une ville hors reseau n'a pas d'itineraire");
+}
+
 void testPersistanceJSONRoundTrip() {
     Client original("CLT-T3", "Test JSON", "011", "Fianarantsoa");
     auto j = PersistanceJSON::versJson(original);
@@ -163,6 +185,7 @@ int main() {
     testDijkstraIgnoreRouteBloquee();
     testAllocateurRessourcesRejetteSiIncompatible();
     testAllocateurChoisitLeVehiculeAdapteMemeGrandeCapacite();
+    testReseauRoutierRelieToutesLesVilles();
     testPersistanceJSONRoundTrip();
 
     std::cout << "\n";

@@ -79,6 +79,16 @@ exécutez `windeployqt build\smart_logistics_gui.exe` pour copier les DLL Qt).
   des commandes) restaure la ligne et affiche la raison.
 - **Tableau de bord et statistiques** sont calculés à partir des données
   affichées, donc toujours identiques à la base.
+- **Itinéraires** (page Itinéraires) : « Calculer l'itinéraire » applique
+  Dijkstra avec la stratégie choisie (plus court, plus rapide, moins cher)
+  sur le réseau routier partagé avec la console et remplit distance, durée
+  et trajet.
+- **Fin de livraison** : « Terminer la livraison » libère véhicule et chauffeur
+  et clôture la commande (et ses colis) quand toutes ses livraisons sont finies.
+- **Cohérence entre pages** : une maintenance « En cours » immobilise le
+  véhicule ; un incident ouvert met la livraison et la commande en « Incident »
+  (et le véhicule « Indisponible » pour une panne ou un accident) ; tout est
+  rétabli à la clôture.
 - **Affectation automatique** (page Livraisons) : choisit le meilleur
   véhicule et chauffeur disponibles avec `AllocateurRessources` (capacité,
   froid, permis, carburant) et met à jour livraison, véhicule, chauffeur et
@@ -98,7 +108,7 @@ SmartLogistics/
 │   ├── etats/                   State : cycle de vie de la Commande
 │   ├── observateurs/            Observer : notifications de statut
 │   ├── strategies/              Strategy : pondération d'itinéraire
-│   ├── graphe/                  Graphe de villes + Dijkstra générique
+│   ├── graphe/                  Graphe de villes, Dijkstra générique, réseau routier
 │   ├── factories/               Factory : Vehicule, Colis
 │   ├── repositories/            Repository (template générique)
 │   ├── services/                GestionnaireFlotte, AllocateurRessources,
@@ -166,8 +176,6 @@ SmartLogistics/
 
 - La console ne persiste pas encore les commandes, colis, livraisons,
   incidents, entrepôts ni la maintenance dans PostgreSQL (l'interface, si).
-- L'interface n'a pas encore d'action « terminer une livraison » ni de calcul
-  d'itinéraire.
 - Le score d'affectation ne tient pas compte de la distance au dépôt ni de
   l'état du véhicule : extension directe de
   `AllocateurRessources::calculerScore`.

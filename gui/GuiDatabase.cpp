@@ -191,7 +191,8 @@ namespace
                 col(2, "destination", Genre::Texte, true),
                 col(3, "distance_km", Genre::Km),
                 col(4, "duree_minutes", Genre::Duree),
-                col(5, "statut", Genre::Code)
+                col(5, "statut", Genre::Code),
+                col(6, "trajet")
             }};
 
         static const Spec commandes{
@@ -530,6 +531,7 @@ namespace
         "CREATE UNIQUE INDEX IF NOT EXISTS ux_entrepots_code ON entrepots(code)",
 
         "ALTER TABLE itineraires ADD COLUMN IF NOT EXISTS code VARCHAR(30)",
+        "ALTER TABLE itineraires ADD COLUMN IF NOT EXISTS trajet TEXT",
         "CREATE UNIQUE INDEX IF NOT EXISTS ux_itineraires_code ON itineraires(code)",
 
         "ALTER TABLE colis       ADD COLUMN IF NOT EXISTS type_colis VARCHAR(30)",

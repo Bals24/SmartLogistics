@@ -20,6 +20,7 @@
 #include "repositories/Repositories.hpp"
 #include "graphe/Graphe.hpp"
 #include "graphe/Dijkstra.hpp"
+#include "graphe/ReseauRoutier.hpp"
 #include "strategies/StrategiesConcretes.hpp"
 #include "observateurs/ObservateursConcrets.hpp"
 #include "services/GestionnaireFlotte.hpp"
@@ -113,15 +114,9 @@ void pauseConsole() {
 // ============================================================================
 
 void construireGrapheVilles(Graphe& graphe) {
-    // Distances/temps/couts approximatifs, juste pour la demonstration.
-    graphe.ajouterRoute(Route("Antananarivo", "Antsirabe", 170.0, 3.0, 60000.0));
-    graphe.ajouterRoute(Route("Antananarivo", "Moramanga", 110.0, 2.0, 45000.0));
-    graphe.ajouterRoute(Route("Antsirabe", "Ambositra", 90.0, 2.0, 35000.0));
-    graphe.ajouterRoute(Route("Ambositra", "Moramanga", 260.0, 5.5, 100000.0));
-    graphe.ajouterRoute(Route("Moramanga", "Toamasina", 210.0, 4.0, 90000.0));
-    // Route directe plus chere mais plus rapide entre Antsirabe et Toamasina,
-    // partiellement ralentie pour illustrer l'impact sur la strategie "plus rapide".
-    graphe.ajouterRoute(Route("Antsirabe", "Toamasina", 340.0, 6.0, 150000.0, EtatRoute::RALENTIE));
+    // Le reseau routier est partage avec l'interface graphique
+    // (graphe/ReseauRoutier.cpp).
+    construireReseauMalgache(graphe);
 }
 
 void initialiserDonneesDemo(ApplicationSmartLogistics& app) {
