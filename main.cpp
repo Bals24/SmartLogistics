@@ -28,6 +28,11 @@
 #include "services/ServiceStatistiques.hpp"
 #include "services/SurveillanceFlotte.hpp"
 #include "persistence/PersistanceJSON.hpp"
+
+#ifdef SL_HAS_POSTGRES
+#include "database/Database.hpp"
+#include "database/PersistancePostgres.hpp"
+#endif
 #include "utils/IdGenerator.hpp"
 #include "utils/Exceptions.hpp"
 
@@ -487,6 +492,50 @@ void chargerDonnees(ApplicationSmartLogistics& app) {
     }
 }
 
+void sauvegarderPostgres(ApplicationSmartLogistics& app) {
+#ifdef SL_HAS_POSTGRES
+    SmartLogistics::Database db;
+    if (!db.connect()) {
+        std::cout << "Connexion PostgreSQL impossible : " << db.lastError() << "\n"
+                  << "(verifiez que le serveur tourne et que la variable "
+                  << "SL_DB_PASSWORD est definie)\n";
+        return;
+    }
+    try {
+        PersistancePostgres::sauvegarderTout(db, app.clients, app.chauffeurs, app.flotte);
+        std::cout << "Clients, chauffeurs et flotte sauvegardes dans PostgreSQL.\n";
+    } catch (const SmartLogisticsException& e) {
+        std::cout << "Erreur de sauvegarde : " << e.what() << "\n";
+    }
+#else
+    (void)app;
+    std::cout << "PostgreSQL n'est pas disponible dans cette compilation.\n";
+#endif
+}
+
+void chargerPostgres(ApplicationSmartLogistics& app) {
+#ifdef SL_HAS_POSTGRES
+    SmartLogistics::Database db;
+    if (!db.connect()) {
+        std::cout << "Connexion PostgreSQL impossible : " << db.lastError() << "\n"
+                  << "(verifiez que le serveur tourne et que la variable "
+                  << "SL_DB_PASSWORD est definie)\n";
+        return;
+    }
+    try {
+        ResumeChargement resume = PersistancePostgres::chargerTout(
+            db, app.clients, app.chauffeurs, app.flotte);
+        std::cout << "Chargement PostgreSQL : " << resume.ajoutes << " element(s) ajoute(s), "
+                  << resume.ignores << " ignore(s) (deja en memoire ou type inconnu).\n";
+    } catch (const SmartLogisticsException& e) {
+        std::cout << "Erreur de chargement : " << e.what() << "\n";
+    }
+#else
+    (void)app;
+    std::cout << "PostgreSQL n'est pas disponible dans cette compilation.\n";
+#endif
+}
+
 void afficherMenu() {
     std::cout << "\n===================================\n";
     std::cout << "      SMART LOGISTICS\n";
@@ -506,6 +555,8 @@ void afficherMenu() {
     std::cout << "13. Afficher les statistiques\n";
     std::cout << "14. Sauvegarder (clients, chauffeurs, flotte) en JSON\n";
     std::cout << "15. Charger des donnees JSON (data/)\n";
+    std::cout << "16. Sauvegarder (clients, chauffeurs, flotte) dans PostgreSQL\n";
+    std::cout << "17. Charger depuis PostgreSQL\n";
     std::cout << " 0. Quitter\n";
 }
 
@@ -524,7 +575,7 @@ int main() {
     bool continuer = true;
     while (continuer) {
         afficherMenu();
-        int choix = lireEntier("Choix : ", 0, 15);
+        int choix = lireEntier("Choix : ", 0, 17);
         switch (choix) {
             case 1:  listerClients(app); break;
             case 2:  listerChauffeurs(app); break;
@@ -541,6 +592,8 @@ int main() {
             case 13: afficherStatistiques(app); break;
             case 14: sauvegarderDonnees(app); break;
             case 15: chargerDonnees(app); break;
+            case 16: sauvegarderPostgres(app); break;
+            case 17: chargerPostgres(app); break;
             case 0:  continuer = false; break;
         }
         if (continuer) pauseConsole();

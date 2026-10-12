@@ -1,74 +1,91 @@
 #pragma once
 
+#include <optional>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include <libpq-fe.h>
 
 namespace SmartLogistics
 {
+    // Parametre SQL : std::nullopt = NULL.
+    using SqlParam = std::optional<std::string>;
+
     /**
-     * Gestion centralisée de la connexion PostgreSQL.
+     * Resultat d'une requete (enveloppe RAII autour de PGresult :
+     * PQclear est appele automatiquement).
+     */
+    class QueryResult
+    {
+    public:
+        QueryResult() = default;
+        explicit QueryResult(PGresult* result);
+        ~QueryResult();
+
+        QueryResult(const QueryResult&) = delete;
+        QueryResult& operator=(const QueryResult&) = delete;
+        QueryResult(QueryResult&& other) noexcept;
+        QueryResult& operator=(QueryResult&& other) noexcept;
+
+        /** true si la requete a reussi (commande ou SELECT). */
+        bool ok() const;
+
+        int rowCount() const;
+        int columnCount() const;
+
+        bool isNull(int row, int column) const;
+
+        /** Valeur textuelle de la cellule ("" si NULL). */
+        std::string value(int row, int column) const;
+
+    private:
+        PGresult* result_ = nullptr;
+    };
+
+    /**
+     * Gestion centralisee de la connexion PostgreSQL.
      *
-     * Cette classe sera utilisée plus tard par les repositories :
+     * Parametres de connexion (valeurs par defaut entre parentheses) :
+     *   SL_DB_HOST      (::1)
+     *   SL_DB_PORT      (5432)
+     *   SL_DB_NAME      (smart_logistics)
+     *   SL_DB_USER      (postgres)
+     *   SL_DB_PASSWORD  (aucun : libpq utilise alors PGPASSWORD / pgpass.conf)
      *
-     * GUI
-     *  ↓
-     * Services
-     *  ↓
-     * Repositories
-     *  ↓
-     * Database
-     *  ↓
-     * PostgreSQL
+     * Le mot de passe ne doit JAMAIS etre ecrit dans le code source.
      */
     class Database
     {
     public:
-
-        /**
-         * Constructeur.
-         */
         Database();
-
-        /**
-         * Destructeur.
-         *
-         * Ferme automatiquement la connexion PostgreSQL.
-         */
         ~Database();
 
-        /**
-         * Établit la connexion à PostgreSQL.
-         *
-         * @return true si la connexion fonctionne.
-         */
+        Database(const Database&) = delete;
+        Database& operator=(const Database&) = delete;
+
         bool connect();
-
-        /**
-         * Ferme la connexion.
-         */
         void disconnect();
-
-        /**
-         * Vérifie si la connexion est active.
-         */
         bool isConnected() const;
 
-        /**
-         * Retourne la connexion PostgreSQL.
-         */
         PGconn* connection() const;
-
-        /**
-         * Retourne le dernier message d'erreur.
-         */
         std::string lastError() const;
 
-    private:
+        /**
+         * Execute une requete SQL. Les valeurs variables doivent passer
+         * par params ($1, $2, ...) et jamais etre collees dans le texte
+         * de la requete (protection contre l'injection SQL).
+         */
+        QueryResult query(const std::string& sql,
+                          const std::vector<SqlParam>& params = {});
 
+        /** Comme query(), mais renvoie simplement true/false. */
+        bool execute(const std::string& sql,
+                     const std::vector<SqlParam>& params = {});
+
+    private:
         PGconn* connection_;
 
-        // Paramètres PostgreSQL
         std::string host_;
         std::string port_;
         std::string database_;

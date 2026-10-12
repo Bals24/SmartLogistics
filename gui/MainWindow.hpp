@@ -1,5 +1,8 @@
 #pragma once
 
+#include <memory>
+
+#include <QList>
 #include <QMainWindow>
 
 /*
@@ -12,6 +15,10 @@ class QStackedWidget;
 class QWidget;
 class QTableWidget;
 class QLineEdit;
+class QTimer;
+class QCloseEvent;
+class GuiDatabase;
+struct ChampFormulaire;
 
 
 /*
@@ -21,6 +28,10 @@ class MainWindow : public QMainWindow
 {
 public:
     explicit MainWindow(QWidget* parent = nullptr);
+    ~MainWindow() override;
+
+protected:
+    void closeEvent(QCloseEvent* event) override;
 
 private:
 
@@ -217,4 +228,39 @@ private:
     QLineEdit* rechercheItineraire_;
     QLineEdit* rechercheIncident_;
     QLineEdit* rechercheMaintenance_;
+    // ============================================================
+    // Base de données PostgreSQL
+    // ============================================================
+
+    void initialiserBaseDeDonnees();
+    void chargerDepuisBase(bool silencieux);
+    void sauvegarderVersBase(bool silencieux);
+    void surveillerTable(QTableWidget* table, int identifiant);
+    void planifierSauvegarde(int identifiant);
+    void afficherEtatBase(const QString& texte, bool erreur);
+    void rechargerDepuisBase(int identifiant);
+    QTableWidget* tablePour(int identifiant) const;
+
+    // ============================================================
+    // Formulaires d'ajout / modification (toutes les pages)
+    // ============================================================
+
+    QList<ChampFormulaire> champsPour(QTableWidget* table) const;
+    void ajouterLigne(QTableWidget* table, const QString& prefixe, const QString& titre);
+    void modifierLigne(QTableWidget* table, const QString& titre);
+    void completerValeursDerivees(QTableWidget* table, QStringList& valeurs) const;
+
+    // ============================================================
+    // Tableau de bord et statistiques calculés depuis les tableaux
+    // ============================================================
+
+    void actualiserTableauDeBord();
+
+    std::unique_ptr<GuiDatabase> baseDeDonnees_;
+    QTimer* sauvegardeTimer_ = nullptr;
+    QTimer* statistiquesTimer_ = nullptr;
+    QLabel* etatBaseLabel_ = nullptr;
+    bool synchronisationEnCours_ = false;
+    bool autoSauvegarde_ = false;
+    unsigned tablesModifiees_ = 0;
 };

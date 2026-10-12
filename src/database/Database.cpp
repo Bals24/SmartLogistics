@@ -1,89 +1,145 @@
 #include "database/Database.hpp"
 
-#include <iostream>
+#include <cstdlib>
 
 namespace SmartLogistics
 {
+    namespace
+    {
+        std::string variableOuDefaut(const char* nom, const std::string& defaut)
+        {
+            const char* valeur = std::getenv(nom);
+            return (valeur != nullptr && *valeur != '\0') ? std::string(valeur) : defaut;
+        }
+    }
+
     // ============================================================
-    // Constructeur
+    // QueryResult
+    // ============================================================
+
+    QueryResult::QueryResult(PGresult* result)
+        : result_(result)
+    {
+    }
+
+    QueryResult::~QueryResult()
+    {
+        if (result_ != nullptr)
+        {
+            PQclear(result_);
+        }
+    }
+
+    QueryResult::QueryResult(QueryResult&& other) noexcept
+        : result_(std::exchange(other.result_, nullptr))
+    {
+    }
+
+    QueryResult& QueryResult::operator=(QueryResult&& other) noexcept
+    {
+        if (this != &other)
+        {
+            if (result_ != nullptr)
+            {
+                PQclear(result_);
+            }
+            result_ = std::exchange(other.result_, nullptr);
+        }
+        return *this;
+    }
+
+    bool QueryResult::ok() const
+    {
+        if (result_ == nullptr)
+        {
+            return false;
+        }
+
+        const ExecStatusType status = PQresultStatus(result_);
+        return status == PGRES_COMMAND_OK || status == PGRES_TUPLES_OK;
+    }
+
+    int QueryResult::rowCount() const
+    {
+        return result_ ? PQntuples(result_) : 0;
+    }
+
+    int QueryResult::columnCount() const
+    {
+        return result_ ? PQnfields(result_) : 0;
+    }
+
+    bool QueryResult::isNull(int row, int column) const
+    {
+        return result_ == nullptr || PQgetisnull(result_, row, column) == 1;
+    }
+
+    std::string QueryResult::value(int row, int column) const
+    {
+        if (isNull(row, column))
+        {
+            return {};
+        }
+        return std::string(PQgetvalue(result_, row, column));
+    }
+
+    // ============================================================
+    // Database
     // ============================================================
 
     Database::Database()
         : connection_(nullptr),
-
-          // Configuration PostgreSQL
-          host_("::1"),
-          port_("5432"),
-          database_("smart_logistics"),
-          user_("postgres"),
-
-          // Remplacer par le vrai mot de passe PostgreSQL
-          password_("+++++++")
+          host_(variableOuDefaut("SL_DB_HOST", "::1")),
+          port_(variableOuDefaut("SL_DB_PORT", "5432")),
+          database_(variableOuDefaut("SL_DB_NAME", "smart_logistics")),
+          user_(variableOuDefaut("SL_DB_USER", "postgres")),
+          password_(variableOuDefaut("SL_DB_PASSWORD", ""))
     {
     }
-
-
-    // ============================================================
-    // Destructeur
-    // ============================================================
 
     Database::~Database()
     {
         disconnect();
     }
 
-
-    // ============================================================
-    // Connexion PostgreSQL
-    // ============================================================
-
     bool Database::connect()
     {
-        // Fermer une éventuelle connexion existante
         disconnect();
 
-        // ========================================================
-        // Connexion avec paramètres séparés
-        // ========================================================
-        //
-        // PQsetdbLogin() évite les problèmes de caractères spéciaux
-        // dans le mot de passe qui peuvent apparaître lors de la
-        // construction manuelle d'une chaîne "host=... password=..."
-        //
-        // ========================================================
-
+        // PQsetdbLogin evite les problemes de caracteres speciaux dans
+        // le mot de passe. Si le mot de passe est vide, on passe nullptr :
+        // libpq cherche alors PGPASSWORD ou le fichier pgpass.conf.
         connection_ = PQsetdbLogin(
             host_.c_str(),
             port_.c_str(),
-            nullptr,              // options
-            nullptr,              // tty
+            nullptr,
+            nullptr,
             database_.c_str(),
             user_.c_str(),
-            password_.c_str()
+            password_.empty() ? nullptr : password_.c_str()
         );
 
-        // Vérifier que PostgreSQL a créé la connexion
         if (connection_ == nullptr)
         {
             return false;
         }
-
-        // ========================================================
-        // Vérification de l'état de la connexion
-        // ========================================================
 
         if (PQstatus(connection_) != CONNECTION_OK)
         {
             return false;
         }
 
+        // Les textes du programme sont en UTF-8 (accents des villes, etc.).
+        PQsetClientEncoding(connection_, "UTF8");
+
+        // Masque les NOTICE du serveur (ex : "la colonne existe deja, ignoree")
+        // qui seraient sinon affichees dans la console a chaque connexion.
+        PQsetNoticeProcessor(connection_,
+                             [](void*, const char*) {},
+                             nullptr);
+
         return true;
     }
-
-
-    // ============================================================
-    // Déconnexion
-    // ============================================================
 
     void Database::disconnect()
     {
@@ -94,31 +150,16 @@ namespace SmartLogistics
         }
     }
 
-
-    // ============================================================
-    // Vérification de la connexion
-    // ============================================================
-
     bool Database::isConnected() const
     {
         return connection_ != nullptr &&
                PQstatus(connection_) == CONNECTION_OK;
     }
 
-
-    // ============================================================
-    // Accès à la connexion PostgreSQL
-    // ============================================================
-
     PGconn* Database::connection() const
     {
         return connection_;
     }
-
-
-    // ============================================================
-    // Récupération de la dernière erreur
-    // ============================================================
 
     std::string Database::lastError() const
     {
@@ -129,11 +170,52 @@ namespace SmartLogistics
 
         const char* error = PQerrorMessage(connection_);
 
-        if (error == nullptr)
+        if (error == nullptr || *error == '\0')
         {
             return "Erreur PostgreSQL inconnue.";
         }
 
-        return std::string(error);
+        std::string message(error);
+        while (!message.empty() &&
+               (message.back() == '\n' || message.back() == '\r'))
+        {
+            message.pop_back();
+        }
+        return message;
+    }
+
+    QueryResult Database::query(const std::string& sql,
+                                const std::vector<SqlParam>& params)
+    {
+        if (!isConnected())
+        {
+            return QueryResult();
+        }
+
+        std::vector<const char*> valeurs;
+        valeurs.reserve(params.size());
+        for (const SqlParam& param : params)
+        {
+            valeurs.push_back(param.has_value() ? param->c_str() : nullptr);
+        }
+
+        PGresult* brut = PQexecParams(
+            connection_,
+            sql.c_str(),
+            static_cast<int>(params.size()),
+            nullptr,                                   // types deduits par le serveur
+            valeurs.empty() ? nullptr : valeurs.data(),
+            nullptr,                                   // longueurs (texte)
+            nullptr,                                   // formats (texte)
+            0                                          // resultat en texte
+        );
+
+        return QueryResult(brut);
+    }
+
+    bool Database::execute(const std::string& sql,
+                           const std::vector<SqlParam>& params)
+    {
+        return query(sql, params).ok();
     }
 }

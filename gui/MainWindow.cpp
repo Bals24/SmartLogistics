@@ -1,6 +1,10 @@
 #include "MainWindow.hpp"
 #include "Style.hpp"
+#include "GuiDatabase.hpp"
+#include "FormulaireDialog.hpp"
 
+#include <QCloseEvent>
+#include <QDate>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -12,6 +16,9 @@
 #include <QStackedWidget>
 #include <QStyle>
 #include <QStringList>
+#include <QRegularExpression>
+#include <QTimer>
+#include <algorithm>
 #include <QTableWidget>
 #include <QTableWidgetItem>
 #include <QVBoxLayout>
@@ -170,7 +177,13 @@ MainWindow::MainWindow(QWidget* parent)
 
     // Page initiale
     changePage(0);
+
+    // Connexion PostgreSQL (silencieuse : sans base, l'interface
+    // fonctionne avec ses données de démonstration)
+    initialiserBaseDeDonnees();
 }
+
+MainWindow::~MainWindow() = default;
 
 
 // ================================================================
@@ -273,6 +286,24 @@ QWidget* MainWindow::createTopBar()
 
     layout->addLayout(titleLayout);
     layout->addStretch();
+
+    etatBaseLabel_ = new QLabel("Base : hors ligne");
+    etatBaseLabel_->setObjectName("pageSubtitle");
+
+    QPushButton* chargerBase = new QPushButton("Charger depuis la base");
+    QPushButton* enregistrerBase = new QPushButton("Enregistrer dans la base");
+
+    connect(chargerBase, &QPushButton::clicked,
+            this, [this]() { chargerDepuisBase(false); });
+
+    connect(enregistrerBase, &QPushButton::clicked,
+            this, [this]() { sauvegarderVersBase(false); });
+
+    layout->addWidget(etatBaseLabel_);
+    layout->addSpacing(12);
+    layout->addWidget(chargerBase);
+    layout->addWidget(enregistrerBase);
+    layout->addSpacing(20);
 
     QLabel* userLabel = new QLabel("Administrateur");
     userLabel->setObjectName("userLabel");
@@ -507,6 +538,30 @@ QWidget* MainWindow::createDashboard()
 // ================================================================
 // FONCTION UTILITAIRE POUR LES PAGES CRUD
 // ================================================================
+
+// Prochain identifiant libre ("CLI-006"...). Evite les doublons quand une
+// ligne du milieu a été supprimée (row + 1 pouvait réutiliser un identifiant).
+static int prochainNumero(QTableWidget* table, const QString& prefixe)
+{
+    int maximum = 0;
+
+    for (int r = 0; r < table->rowCount(); ++r)
+    {
+        const QTableWidgetItem* item = table->item(r, 0);
+        if (!item) continue;
+
+        const QString texte = item->text();
+        if (!texte.startsWith(prefixe + "-")) continue;
+
+        maximum = qMax(maximum, texte.mid(prefixe.size() + 1).toInt());
+    }
+    return maximum + 1;
+}
+
+static QString prochainCode(QTableWidget* table, const QString& prefixe)
+{
+    return QString("%1-%2").arg(prefixe).arg(prochainNumero(table, prefixe), 3, 10, QChar('0'));
+}
 
 static void configurerTable(QTableWidget* table)
 {
@@ -2066,56 +2121,13 @@ static void rechercherDansTable(
 
 void MainWindow::ajouterCommande()
 {
-    int row =
-        commandesTable_->rowCount();
-
-    commandesTable_->insertRow(row);
-
-    QString id =
-        QString("#CMD-%1")
-            .arg(row + 1, 3, 10, QChar('0'));
-
-    QStringList values = {
-        id,
-        "Nouveau client",
-        "Antananarivo",
-        "Nouvelle",
-        "23/09/2026",
-        "0 Ar"
-    };
-
-    for (int c = 0; c < values.size(); ++c)
-    {
-        commandesTable_->setItem(
-            row,
-            c,
-            new QTableWidgetItem(values[c])
-        );
-    }
-
-    commandesTable_->selectRow(row);
+    ajouterLigne(commandesTable_, "#CMD", "Nouveau : commande");
 }
 
 
 void MainWindow::modifierCommande()
 {
-    int row =
-        commandesTable_->currentRow();
-
-    if (row < 0)
-    {
-        QMessageBox::information(
-            this,
-            "Modification",
-            "Sélectionnez d'abord une commande."
-        );
-
-        return;
-    }
-
-    commandesTable_->editItem(
-        commandesTable_->item(row, 1)
-    );
+    modifierLigne(commandesTable_, "Modifier : commande");
 }
 
 
@@ -2159,6 +2171,8 @@ void MainWindow::rechercherCommande()
 
 void MainWindow::actualiserCommandes()
 {
+    rechargerDepuisBase(5);
+
     rechercheCommande_->clear();
 
     for (int r = 0;
@@ -2178,57 +2192,13 @@ void MainWindow::actualiserCommandes()
 
 void MainWindow::ajouterColis()
 {
-    int row =
-        colisTable_->rowCount();
-
-    colisTable_->insertRow(row);
-
-    QString id =
-        QString("COL-%1")
-            .arg(row + 1, 3, 10, QChar('0'));
-
-    QStringList values = {
-        id,
-        "CMD-NEW",
-        "Standard",
-        "0 kg",
-        "Nouveau",
-        "Antananarivo",
-        "23/09/2026"
-    };
-
-    for (int c = 0; c < values.size(); ++c)
-    {
-        colisTable_->setItem(
-            row,
-            c,
-            new QTableWidgetItem(values[c])
-        );
-    }
-
-    colisTable_->selectRow(row);
+    ajouterLigne(colisTable_, "COL", "Nouveau : colis");
 }
 
 
 void MainWindow::modifierColis()
 {
-    int row =
-        colisTable_->currentRow();
-
-    if (row < 0)
-    {
-        QMessageBox::information(
-            this,
-            "Modification",
-            "Sélectionnez d'abord un colis."
-        );
-
-        return;
-    }
-
-    colisTable_->editItem(
-        colisTable_->item(row, 2)
-    );
+    modifierLigne(colisTable_, "Modifier : colis");
 }
 
 
@@ -2271,6 +2241,8 @@ void MainWindow::rechercherColis()
 
 void MainWindow::actualiserColis()
 {
+    rechargerDepuisBase(6);
+
     rechercheColis_->clear();
 
     for (int r = 0;
@@ -2290,51 +2262,13 @@ void MainWindow::actualiserColis()
 
 void MainWindow::ajouterClient()
 {
-    int row = clientsTable_->rowCount();
-
-    clientsTable_->insertRow(row);
-
-    QStringList values = {
-        QString("CLI-%1").arg(
-            row + 1, 3, 10, QChar('0')
-        ),
-        "Nouveau client",
-        "034 00 000 00",
-        "email@mail.com",
-        "Antananarivo",
-        "0"
-    };
-
-    for (int c = 0; c < values.size(); ++c)
-    {
-        clientsTable_->setItem(
-            row,
-            c,
-            new QTableWidgetItem(values[c])
-        );
-    }
-
-    clientsTable_->selectRow(row);
+    ajouterLigne(clientsTable_, "CLI", "Nouveau : client");
 }
 
 
 void MainWindow::modifierClient()
 {
-    int row = clientsTable_->currentRow();
-
-    if (row < 0)
-    {
-        QMessageBox::information(
-            this,
-            "Modification",
-            "Sélectionnez d'abord un client."
-        );
-        return;
-    }
-
-    clientsTable_->editItem(
-        clientsTable_->item(row, 1)
-    );
+    modifierLigne(clientsTable_, "Modifier : client");
 }
 
 
@@ -2375,6 +2309,8 @@ void MainWindow::rechercherClient()
 
 void MainWindow::actualiserClients()
 {
+    rechargerDepuisBase(0);
+
     rechercheClient_->clear();
 
     for (int r = 0;
@@ -2394,52 +2330,13 @@ void MainWindow::actualiserClients()
 
 void MainWindow::ajouterVehicule()
 {
-    int row = vehiculesTable_->rowCount();
-
-    vehiculesTable_->insertRow(row);
-
-    QStringList values = {
-        QString("VEH-%1").arg(
-            row + 1, 3, 10, QChar('0')
-        ),
-        "0000 TAA",
-        "Toyota",
-        "Hiace",
-        "Utilitaire",
-        "Disponible",
-        "0 km"
-    };
-
-    for (int c = 0; c < values.size(); ++c)
-    {
-        vehiculesTable_->setItem(
-            row,
-            c,
-            new QTableWidgetItem(values[c])
-        );
-    }
-
-    vehiculesTable_->selectRow(row);
+    ajouterLigne(vehiculesTable_, "VEH", "Nouveau : véhicule");
 }
 
 
 void MainWindow::modifierVehicule()
 {
-    int row = vehiculesTable_->currentRow();
-
-    if (row < 0)
-    {
-        QMessageBox::information(
-            this,
-            "Modification",
-            "Sélectionnez d'abord un véhicule."
-        );
-        return;
-    }
-
-    vehiculesTable_->editItem(
-        vehiculesTable_->item(row, 1)
-    );
+    modifierLigne(vehiculesTable_, "Modifier : véhicule");
 }
 
 
@@ -2480,6 +2377,8 @@ void MainWindow::rechercherVehicule()
 
 void MainWindow::actualiserVehicules()
 {
+    rechargerDepuisBase(1);
+
     rechercheVehicule_->clear();
 
     for (int r = 0;
@@ -2499,51 +2398,13 @@ void MainWindow::actualiserVehicules()
 
 void MainWindow::ajouterChauffeur()
 {
-    int row = chauffeursTable_->rowCount();
-
-    chauffeursTable_->insertRow(row);
-
-    QStringList values = {
-        QString("CHA-%1").arg(
-            row + 1, 3, 10, QChar('0')
-        ),
-        "Nouveau chauffeur",
-        "034 00 000 00",
-        "B",
-        "Aucun",
-        "Disponible"
-    };
-
-    for (int c = 0; c < values.size(); ++c)
-    {
-        chauffeursTable_->setItem(
-            row,
-            c,
-            new QTableWidgetItem(values[c])
-        );
-    }
-
-    chauffeursTable_->selectRow(row);
+    ajouterLigne(chauffeursTable_, "CHA", "Nouveau : chauffeur");
 }
 
 
 void MainWindow::modifierChauffeur()
 {
-    int row = chauffeursTable_->currentRow();
-
-    if (row < 0)
-    {
-        QMessageBox::information(
-            this,
-            "Modification",
-            "Sélectionnez d'abord un chauffeur."
-        );
-        return;
-    }
-
-    chauffeursTable_->editItem(
-        chauffeursTable_->item(row, 1)
-    );
+    modifierLigne(chauffeursTable_, "Modifier : chauffeur");
 }
 
 
@@ -2584,6 +2445,8 @@ void MainWindow::rechercherChauffeur()
 
 void MainWindow::actualiserChauffeurs()
 {
+    rechargerDepuisBase(2);
+
     rechercheChauffeur_->clear();
 
     for (int r = 0;
@@ -2603,51 +2466,13 @@ void MainWindow::actualiserChauffeurs()
 
 void MainWindow::ajouterEntrepot()
 {
-    int row = entrepotsTable_->rowCount();
-
-    entrepotsTable_->insertRow(row);
-
-    QStringList values = {
-        QString("ENT-%1").arg(
-            row + 1, 3, 10, QChar('0')
-        ),
-        "Nouvel entrepôt",
-        "Antananarivo",
-        "0 colis",
-        "0 colis",
-        "Disponible"
-    };
-
-    for (int c = 0; c < values.size(); ++c)
-    {
-        entrepotsTable_->setItem(
-            row,
-            c,
-            new QTableWidgetItem(values[c])
-        );
-    }
-
-    entrepotsTable_->selectRow(row);
+    ajouterLigne(entrepotsTable_, "ENT", "Nouveau : entrepôt");
 }
 
 
 void MainWindow::modifierEntrepot()
 {
-    int row = entrepotsTable_->currentRow();
-
-    if (row < 0)
-    {
-        QMessageBox::information(
-            this,
-            "Modification",
-            "Sélectionnez d'abord un entrepôt."
-        );
-        return;
-    }
-
-    entrepotsTable_->editItem(
-        entrepotsTable_->item(row, 1)
-    );
+    modifierLigne(entrepotsTable_, "Modifier : entrepôt");
 }
 
 
@@ -2688,6 +2513,8 @@ void MainWindow::rechercherEntrepot()
 
 void MainWindow::actualiserEntrepots()
 {
+    rechargerDepuisBase(3);
+
     rechercheEntrepot_->clear();
 
     for (int r = 0;
@@ -2707,52 +2534,13 @@ void MainWindow::actualiserEntrepots()
 
 void MainWindow::ajouterLivraison()
 {
-    int row = livraisonsTable_->rowCount();
-
-    livraisonsTable_->insertRow(row);
-
-    QStringList values = {
-        QString("LIV-%1").arg(
-            row + 1, 3, 10, QChar('0')
-        ),
-        "CMD-NEW",
-        "Nouveau client",
-        "Aucun",
-        "Aucun",
-        "Antananarivo",
-        "Planifiée"
-    };
-
-    for (int c = 0; c < values.size(); ++c)
-    {
-        livraisonsTable_->setItem(
-            row,
-            c,
-            new QTableWidgetItem(values[c])
-        );
-    }
-
-    livraisonsTable_->selectRow(row);
+    ajouterLigne(livraisonsTable_, "LIV", "Nouveau : livraison");
 }
 
 
 void MainWindow::modifierLivraison()
 {
-    int row = livraisonsTable_->currentRow();
-
-    if (row < 0)
-    {
-        QMessageBox::information(
-            this,
-            "Modification",
-            "Sélectionnez d'abord une livraison."
-        );
-        return;
-    }
-
-    livraisonsTable_->editItem(
-        livraisonsTable_->item(row, 2)
-    );
+    modifierLigne(livraisonsTable_, "Modifier : livraison");
 }
 
 
@@ -2793,6 +2581,8 @@ void MainWindow::rechercherLivraison()
 
 void MainWindow::actualiserLivraisons()
 {
+    rechargerDepuisBase(7);
+
     rechercheLivraison_->clear();
 
     for (int r = 0;
@@ -2812,51 +2602,13 @@ void MainWindow::actualiserLivraisons()
 
 void MainWindow::ajouterItineraire()
 {
-    int row = itinerairesTable_->rowCount();
-
-    itinerairesTable_->insertRow(row);
-
-    QStringList values = {
-        QString("ITI-%1").arg(
-            row + 1, 3, 10, QChar('0')
-        ),
-        "Antananarivo",
-        "Nouvelle destination",
-        "0 km",
-        "0h",
-        "Planifié"
-    };
-
-    for (int c = 0; c < values.size(); ++c)
-    {
-        itinerairesTable_->setItem(
-            row,
-            c,
-            new QTableWidgetItem(values[c])
-        );
-    }
-
-    itinerairesTable_->selectRow(row);
+    ajouterLigne(itinerairesTable_, "ITI", "Nouveau : itinéraire");
 }
 
 
 void MainWindow::modifierItineraire()
 {
-    int row = itinerairesTable_->currentRow();
-
-    if (row < 0)
-    {
-        QMessageBox::information(
-            this,
-            "Modification",
-            "Sélectionnez d'abord un itinéraire."
-        );
-        return;
-    }
-
-    itinerairesTable_->editItem(
-        itinerairesTable_->item(row, 2)
-    );
+    modifierLigne(itinerairesTable_, "Modifier : itinéraire");
 }
 
 
@@ -2897,6 +2649,8 @@ void MainWindow::rechercherItineraire()
 
 void MainWindow::actualiserItineraires()
 {
+    rechargerDepuisBase(4);
+
     rechercheItineraire_->clear();
 
     for (int r = 0;
@@ -2916,52 +2670,13 @@ void MainWindow::actualiserItineraires()
 
 void MainWindow::ajouterIncident()
 {
-    int row = incidentsTable_->rowCount();
-
-    incidentsTable_->insertRow(row);
-
-    QStringList values = {
-        QString("INC-%1").arg(
-            row + 1, 3, 10, QChar('0')
-        ),
-        "23/09/2026",
-        "Autre",
-        "VEH-001",
-        "CHA-001",
-        "Nouvel incident",
-        "Ouvert"
-    };
-
-    for (int c = 0; c < values.size(); ++c)
-    {
-        incidentsTable_->setItem(
-            row,
-            c,
-            new QTableWidgetItem(values[c])
-        );
-    }
-
-    incidentsTable_->selectRow(row);
+    ajouterLigne(incidentsTable_, "INC", "Nouveau : incident");
 }
 
 
 void MainWindow::modifierIncident()
 {
-    int row = incidentsTable_->currentRow();
-
-    if (row < 0)
-    {
-        QMessageBox::information(
-            this,
-            "Modification",
-            "Sélectionnez d'abord un incident."
-        );
-        return;
-    }
-
-    incidentsTable_->editItem(
-        incidentsTable_->item(row, 5)
-    );
+    modifierLigne(incidentsTable_, "Modifier : incident");
 }
 
 
@@ -3002,6 +2717,8 @@ void MainWindow::rechercherIncident()
 
 void MainWindow::actualiserIncidents()
 {
+    rechargerDepuisBase(8);
+
     rechercheIncident_->clear();
 
     for (int r = 0;
@@ -3021,52 +2738,13 @@ void MainWindow::actualiserIncidents()
 
 void MainWindow::ajouterMaintenance()
 {
-    int row = maintenanceTable_->rowCount();
-
-    maintenanceTable_->insertRow(row);
-
-    QStringList values = {
-        QString("MAI-%1").arg(
-            row + 1, 3, 10, QChar('0')
-        ),
-        "VEH-001",
-        "Révision",
-        "23/09/2026",
-        "0 km",
-        "0 Ar",
-        "Planifiée"
-    };
-
-    for (int c = 0; c < values.size(); ++c)
-    {
-        maintenanceTable_->setItem(
-            row,
-            c,
-            new QTableWidgetItem(values[c])
-        );
-    }
-
-    maintenanceTable_->selectRow(row);
+    ajouterLigne(maintenanceTable_, "MAI", "Nouveau : intervention de maintenance");
 }
 
 
 void MainWindow::modifierMaintenance()
 {
-    int row = maintenanceTable_->currentRow();
-
-    if (row < 0)
-    {
-        QMessageBox::information(
-            this,
-            "Modification",
-            "Sélectionnez d'abord une maintenance."
-        );
-        return;
-    }
-
-    maintenanceTable_->editItem(
-        maintenanceTable_->item(row, 2)
-    );
+    modifierLigne(maintenanceTable_, "Modifier : intervention de maintenance");
 }
 
 
@@ -3107,6 +2785,8 @@ void MainWindow::rechercherMaintenance()
 
 void MainWindow::actualiserMaintenances()
 {
+    rechargerDepuisBase(9);
+
     rechercheMaintenance_->clear();
 
     for (int r = 0;
@@ -3129,4 +2809,872 @@ void MainWindow::actualiserStatistiques()
     // Les statistiques sont actuellement statiques.
     // Elles seront calculées automatiquement après
     // la connexion à PostgreSQL.
+}
+
+
+// ================================================================
+// FORMULAIRES D'AJOUT / MODIFICATION
+// ================================================================
+
+namespace
+{
+    const QStringList VILLES = {
+        "Antananarivo", "Toamasina", "Fianarantsoa", "Mahajanga",
+        "Antsirabe", "Toliara", "Antsiranana"
+    };
+
+    QStringList valeursDeColonne(const QTableWidget* table, int colonne, bool sansDiese = false)
+    {
+        QStringList liste;
+
+        for (int r = 0; r < table->rowCount(); ++r)
+        {
+            const QTableWidgetItem* item = table->item(r, colonne);
+            if (!item) continue;
+
+            QString valeur = item->text().trimmed();
+            if (sansDiese && valeur.startsWith('#')) valeur.remove(0, 1);
+
+            if (!valeur.isEmpty() && !liste.contains(valeur))
+            {
+                liste << valeur;
+            }
+        }
+        return liste;
+    }
+
+    QString texteDe(const QTableWidget* table, int ligne, int colonne)
+    {
+        const QTableWidgetItem* item = table->item(ligne, colonne);
+        return item ? item->text().trimmed() : QString();
+    }
+
+    double nombreDe(QString texte)
+    {
+        texte.remove(QRegularExpression("[^0-9,.]"));
+        texte.replace(',', '.');
+        return texte.toDouble();
+    }
+
+    QString enMinuscules(const QString& texte)
+    {
+        return texte.trimmed().toLower();
+    }
+}
+
+QList<ChampFormulaire> MainWindow::champsPour(QTableWidget* table) const
+{
+    using T = ChampFormulaire::Type;
+
+    auto champ = [](const QString& etiquette,
+                    T type = T::Texte,
+                    const QStringList& choix = {},
+                    const QString& suffixe = QString(),
+                    bool requis = false)
+    {
+        ChampFormulaire c;
+        c.etiquette = etiquette;
+        c.type = type;
+        c.choix = choix;
+        c.suffixe = suffixe;
+        c.requis = requis;
+        return c;
+    };
+
+    auto avecAucun = [](QStringList liste)
+    {
+        liste.prepend("Aucun");
+        return liste;
+    };
+
+    if (table == clientsTable_)
+    {
+        return {
+            champ("ID", T::LectureSeule),
+            champ("Nom", T::Texte, {}, {}, true),
+            champ("Téléphone"),
+            champ("Email"),
+            champ("Ville", T::ChoixEditable, VILLES),
+            champ("Commandes", T::LectureSeule)
+        };
+    }
+
+    if (table == vehiculesTable_)
+    {
+        return {
+            champ("ID", T::LectureSeule),
+            champ("Immatriculation", T::Texte, {}, {}, true),
+            champ("Marque"),
+            champ("Modèle"),
+            champ("Type", T::ChoixEditable,
+                  {"Utilitaire", "Fourgon", "Camion", "Moto", "Frigorifique"}),
+            champ("Statut", T::Choix,
+                  {"Disponible", "Actif", "En mission", "Maintenance", "Indisponible"}),
+            champ("Kilométrage", T::Nombre, {}, " km")
+        };
+    }
+
+    if (table == chauffeursTable_)
+    {
+        return {
+            champ("ID", T::LectureSeule),
+            champ("Nom", T::Texte, {}, {}, true),
+            champ("Téléphone"),
+            champ("Permis", T::Choix, {"B", "C", "C1", "MOTO"}),
+            champ("Véhicule", T::Choix, avecAucun(valeursDeColonne(vehiculesTable_, 0))),
+            champ("Statut", T::Choix,
+                  {"Disponible", "En livraison", "En congé", "Indisponible"})
+        };
+    }
+
+    if (table == entrepotsTable_)
+    {
+        return {
+            champ("ID", T::LectureSeule),
+            champ("Nom", T::Texte, {}, {}, true),
+            champ("Ville", T::ChoixEditable, VILLES),
+            champ("Capacité", T::Nombre, {}, " colis"),
+            champ("Occupation", T::Nombre, {}, " colis"),
+            champ("Statut", T::Choix,
+                  {"Actif", "Disponible", "Presque plein", "Plein", "Inactif"})
+        };
+    }
+
+    if (table == itinerairesTable_)
+    {
+        return {
+            champ("ID", T::LectureSeule),
+            champ("Départ", T::ChoixEditable, VILLES, {}, true),
+            champ("Destination", T::ChoixEditable, VILLES, {}, true),
+            champ("Distance", T::Nombre, {}, " km"),
+            champ("Durée (ex : 8h 30)"),
+            champ("Statut", T::Choix, {"Planifié", "Actif", "Optimisé", "Terminé"})
+        };
+    }
+
+    if (table == commandesTable_)
+    {
+        return {
+            champ("Commande", T::LectureSeule),
+            champ("Client", T::Choix, valeursDeColonne(clientsTable_, 1), {}, true),
+            champ("Destination", T::ChoixEditable, VILLES),
+            champ("Statut", T::Choix,
+                  {"En attente", "En cours", "En transit", "Livrée", "Incident", "Annulée"}),
+            champ("Date", T::Date),
+            champ("Montant", T::Nombre, {}, " Ar")
+        };
+    }
+
+    if (table == colisTable_)
+    {
+        return {
+            champ("ID Colis", T::LectureSeule),
+            champ("Commande", T::Choix, valeursDeColonne(commandesTable_, 0, true), {}, true),
+            champ("Type", T::ChoixEditable, {"Standard", "Fragile", "Volumineux"}),
+            champ("Poids", T::Nombre, {}, " kg"),
+            champ("Statut", T::Choix,
+                  {"En attente", "En cours", "En transit", "Livré", "Incident"}),
+            champ("Destination", T::ChoixEditable, VILLES),
+            champ("Date", T::Date)
+        };
+    }
+
+    if (table == livraisonsTable_)
+    {
+        return {
+            champ("ID", T::LectureSeule),
+            champ("Commande", T::Choix, valeursDeColonne(commandesTable_, 0, true), {}, true),
+            champ("Client (selon la commande)", T::LectureSeule),
+            champ("Chauffeur", T::Choix, avecAucun(valeursDeColonne(chauffeursTable_, 0))),
+            champ("Véhicule", T::Choix, avecAucun(valeursDeColonne(vehiculesTable_, 0))),
+            champ("Destination", T::ChoixEditable, VILLES),
+            champ("Statut", T::Choix,
+                  {"Planifiée", "En cours", "En transit", "Livrée", "Incident", "Annulée"})
+        };
+    }
+
+    if (table == incidentsTable_)
+    {
+        return {
+            champ("ID", T::LectureSeule),
+            champ("Date", T::Date),
+            champ("Type", T::ChoixEditable, {"Panne", "Accident", "Retard", "Autre"}, {}, true),
+            champ("Véhicule", T::Choix, avecAucun(valeursDeColonne(vehiculesTable_, 0))),
+            champ("Chauffeur", T::Choix, avecAucun(valeursDeColonne(chauffeursTable_, 0))),
+            champ("Description", T::Texte, {}, {}, true),
+            champ("Statut", T::Choix, {"Ouvert", "Traité", "Clos"})
+        };
+    }
+
+    if (table == maintenanceTable_)
+    {
+        return {
+            champ("ID", T::LectureSeule),
+            champ("Véhicule", T::Choix, valeursDeColonne(vehiculesTable_, 0), {}, true),
+            champ("Type", T::ChoixEditable,
+                  {"Révision moteur", "Vidange", "Freins", "Pneus", "Révision générale"},
+                  {}, true),
+            champ("Date", T::Date),
+            champ("Kilométrage", T::Nombre, {}, " km"),
+            champ("Coût", T::Nombre, {}, " Ar"),
+            champ("Statut", T::Choix, {"Planifiée", "En cours", "Terminée"})
+        };
+    }
+
+    return {};
+}
+
+// Valeurs qui dépendent d'autres tableaux (client d'une livraison, nombre
+// de commandes d'un client).
+void MainWindow::completerValeursDerivees(QTableWidget* table, QStringList& valeurs) const
+{
+    if (table == livraisonsTable_ && valeurs.size() > 2)
+    {
+        QString client;
+        for (int r = 0; r < commandesTable_->rowCount(); ++r)
+        {
+            QString code = texteDe(commandesTable_, r, 0);
+            if (code.startsWith('#')) code.remove(0, 1);
+
+            if (code == valeurs[1])
+            {
+                client = texteDe(commandesTable_, r, 1);
+                break;
+            }
+        }
+        valeurs[2] = client;
+    }
+
+    if (table == clientsTable_ && valeurs.size() > 5)
+    {
+        int nombre = 0;
+        for (int r = 0; r < commandesTable_->rowCount(); ++r)
+        {
+            if (texteDe(commandesTable_, r, 1) == valeurs[1]) ++nombre;
+        }
+        valeurs[5] = QString::number(nombre);
+    }
+}
+
+void MainWindow::ajouterLigne(QTableWidget* table, const QString& prefixe, const QString& titre)
+{
+    using T = ChampFormulaire::Type;
+
+    const QList<ChampFormulaire> champs = champsPour(table);
+    if (champs.isEmpty()) return;
+
+    // Valeurs de départ : première option des listes, date du jour, 0 pour les nombres
+    QStringList initiales;
+    for (const ChampFormulaire& champ : champs)
+    {
+        switch (champ.type)
+        {
+            case T::Choix:
+            case T::ChoixEditable:
+                initiales << (champ.choix.isEmpty() ? QString() : champ.choix.first());
+                break;
+            case T::Date:
+                initiales << QDate::currentDate().toString("dd/MM/yyyy");
+                break;
+            case T::Nombre:
+                initiales << ("0" + champ.suffixe);
+                break;
+            default:
+                initiales << QString();
+                break;
+        }
+    }
+
+    initiales[0] = prochainCode(table, prefixe);
+    if (table == clientsTable_) initiales[5] = "0";
+
+    FormulaireDialog dialogue(titre, champs, initiales, this);
+    if (dialogue.exec() != QDialog::Accepted)
+    {
+        return;
+    }
+
+    QStringList valeurs = dialogue.valeurs();
+    valeurs[0] = initiales[0];
+    completerValeursDerivees(table, valeurs);
+
+    const int ligne = table->rowCount();
+    table->insertRow(ligne);
+
+    for (int c = 0; c < valeurs.size() && c < table->columnCount(); ++c)
+    {
+        table->setItem(ligne, c, new QTableWidgetItem(valeurs[c]));
+    }
+
+    table->selectRow(ligne);
+    table->scrollToItem(table->item(ligne, 0));
+}
+
+void MainWindow::modifierLigne(QTableWidget* table, const QString& titre)
+{
+    const int ligne = table->currentRow();
+
+    if (ligne < 0)
+    {
+        QMessageBox::information(
+            this,
+            "Modification",
+            "Sélectionnez d'abord une ligne dans le tableau."
+        );
+        return;
+    }
+
+    const QList<ChampFormulaire> champs = champsPour(table);
+    if (champs.isEmpty()) return;
+
+    QStringList initiales;
+    for (int c = 0; c < champs.size(); ++c)
+    {
+        initiales << texteDe(table, ligne, c);
+    }
+
+    FormulaireDialog dialogue(titre, champs, initiales, this);
+    if (dialogue.exec() != QDialog::Accepted)
+    {
+        return;
+    }
+
+    QStringList valeurs = dialogue.valeurs();
+    valeurs[0] = initiales[0];   // l'identifiant ne change jamais
+    completerValeursDerivees(table, valeurs);
+
+    // Un client renommé : ses commandes suivent (elles le désignent par son nom)
+    if (table == clientsTable_ && initiales.size() > 1 && valeurs[1] != initiales[1])
+    {
+        for (int r = 0; r < commandesTable_->rowCount(); ++r)
+        {
+            if (texteDe(commandesTable_, r, 1) == initiales[1])
+            {
+                commandesTable_->item(r, 1)->setText(valeurs[1]);
+            }
+        }
+    }
+
+    for (int c = 0; c < valeurs.size() && c < table->columnCount(); ++c)
+    {
+        QTableWidgetItem* item = table->item(ligne, c);
+        if (item)
+        {
+            item->setText(valeurs[c]);
+        }
+        else
+        {
+            table->setItem(ligne, c, new QTableWidgetItem(valeurs[c]));
+        }
+    }
+}
+
+
+// ================================================================
+// BASE DE DONNÉES POSTGRESQL
+// ================================================================
+
+namespace
+{
+    const char* libelleTable(int identifiant)
+    {
+        static const char* const libelles[NOMBRE_TABLES] = {
+            "clients", "véhicules", "chauffeurs", "entrepôts", "itinéraires",
+            "commandes", "colis", "livraisons", "incidents", "maintenance"
+        };
+        return libelles[identifiant];
+    }
+}
+
+QTableWidget* MainWindow::tablePour(int identifiant) const
+{
+    switch (static_cast<TableId>(identifiant))
+    {
+        case TableId::Clients:     return clientsTable_;
+        case TableId::Vehicules:   return vehiculesTable_;
+        case TableId::Chauffeurs:  return chauffeursTable_;
+        case TableId::Entrepots:   return entrepotsTable_;
+        case TableId::Itineraires: return itinerairesTable_;
+        case TableId::Commandes:   return commandesTable_;
+        case TableId::Colis:       return colisTable_;
+        case TableId::Livraisons:  return livraisonsTable_;
+        case TableId::Incidents:   return incidentsTable_;
+        case TableId::Maintenance: return maintenanceTable_;
+    }
+    return nullptr;
+}
+
+void MainWindow::initialiserBaseDeDonnees()
+{
+    baseDeDonnees_ = std::make_unique<GuiDatabase>();
+
+    // Enregistrement automatique 0,7 s après la dernière modification
+    sauvegardeTimer_ = new QTimer(this);
+    sauvegardeTimer_->setSingleShot(true);
+    sauvegardeTimer_->setInterval(700);
+
+    connect(sauvegardeTimer_, &QTimer::timeout,
+            this, [this]() { sauvegarderVersBase(true); });
+
+    // Tableau de bord et statistiques recalculés peu après chaque changement
+    statistiquesTimer_ = new QTimer(this);
+    statistiquesTimer_->setSingleShot(true);
+    statistiquesTimer_->setInterval(150);
+
+    connect(statistiquesTimer_, &QTimer::timeout,
+            this, [this]() { actualiserTableauDeBord(); });
+
+    for (int i = 0; i < NOMBRE_TABLES; ++i)
+    {
+        surveillerTable(tablePour(i), i);
+    }
+
+    chargerDepuisBase(true);
+    actualiserTableauDeBord();
+}
+
+void MainWindow::surveillerTable(QTableWidget* table, int identifiant)
+{
+    auto declencheur = [this, identifiant]()
+    {
+        planifierSauvegarde(identifiant);
+        statistiquesTimer_->start();
+    };
+
+    connect(table->model(), &QAbstractItemModel::rowsInserted, this, declencheur);
+    connect(table->model(), &QAbstractItemModel::rowsRemoved,  this, declencheur);
+    connect(table->model(), &QAbstractItemModel::dataChanged,  this, declencheur);
+}
+
+void MainWindow::planifierSauvegarde(int identifiant)
+{
+    if (synchronisationEnCours_ || !autoSauvegarde_)
+    {
+        return;
+    }
+
+    tablesModifiees_ |= (1u << identifiant);
+    sauvegardeTimer_->start();
+}
+
+void MainWindow::afficherEtatBase(const QString& texte, bool erreur)
+{
+    etatBaseLabel_->setText(texte);
+    etatBaseLabel_->setStyleSheet(
+        erreur ? "color: #dc2626; font-weight: 600;"
+               : "color: #16a34a; font-weight: 600;");
+}
+
+void MainWindow::chargerDepuisBase(bool silencieux)
+{
+    QStringList erreurs;
+    QStringList details;
+    bool vide[NOMBRE_TABLES] = {};
+    int totalLignes = 0;
+
+    synchronisationEnCours_ = true;
+
+    for (int i = 0; i < NOMBRE_TABLES; ++i)
+    {
+        const ResultatSync resultat =
+            baseDeDonnees_->charger(static_cast<TableId>(i), tablePour(i), false);
+
+        if (!resultat.ok)
+        {
+            erreurs << resultat.erreurs;
+            break;   // inutile d'attendre 10 fois un serveur injoignable
+        }
+
+        vide[i] = (resultat.lignes == 0);
+        totalLignes += resultat.lignes;
+        details << QString("%1 : %2 ligne(s)").arg(libelleTable(i)).arg(resultat.lignes);
+    }
+
+    const bool baseVide = erreurs.isEmpty() && totalLignes == 0;
+
+    // La base fait foi : une table vide en base est vide à l'écran.
+    // Exception : base entièrement vide (première utilisation), où les
+    // données de démonstration servent à l'alimenter.
+    if (erreurs.isEmpty() && !baseVide)
+    {
+        for (int i = 0; i < NOMBRE_TABLES; ++i)
+        {
+            if (vide[i])
+            {
+                tablePour(i)->setRowCount(0);
+            }
+        }
+    }
+
+    synchronisationEnCours_ = false;
+
+    if (!erreurs.isEmpty())
+    {
+        autoSauvegarde_ = false;
+        afficherEtatBase("Base : hors ligne", true);
+        etatBaseLabel_->setToolTip(erreurs.join("\n"));
+
+        if (!silencieux)
+        {
+            QMessageBox::warning(
+                this,
+                "PostgreSQL",
+                "Connexion impossible :\n" + erreurs.join("\n") +
+                "\n\nVérifiez que le serveur tourne et que la variable "
+                "d'environnement SL_DB_PASSWORD est définie.");
+        }
+        actualiserTableauDeBord();
+        return;
+    }
+
+    autoSauvegarde_ = true;
+    afficherEtatBase("Base : PostgreSQL connecté", false);
+    etatBaseLabel_->setToolTip(details.join("\n"));
+
+    if (baseVide)
+    {
+        // Première utilisation : les données de démonstration alimentent la base
+        tablesModifiees_ = (1u << NOMBRE_TABLES) - 1;
+        sauvegarderVersBase(true);
+        details << "Base vide : données de démonstration enregistrées.";
+    }
+
+    actualiserTableauDeBord();
+
+    if (!silencieux)
+    {
+        QMessageBox::information(this, "PostgreSQL", details.join("\n"));
+    }
+}
+
+void MainWindow::rechargerDepuisBase(int identifiant)
+{
+    if (!baseDeDonnees_)
+    {
+        return;
+    }
+
+    // Ne jamais écraser une modification pas encore enregistrée
+    if (sauvegardeTimer_ && sauvegardeTimer_->isActive())
+    {
+        sauvegardeTimer_->stop();
+        sauvegarderVersBase(true);
+    }
+
+    synchronisationEnCours_ = true;
+    const ResultatSync resultat =
+        baseDeDonnees_->charger(static_cast<TableId>(identifiant), tablePour(identifiant), true);
+    synchronisationEnCours_ = false;
+
+    if (resultat.ok)
+    {
+        autoSauvegarde_ = true;
+        afficherEtatBase("Base : PostgreSQL connecté", false);
+        etatBaseLabel_->setToolTip(QString());
+    }
+    else
+    {
+        afficherEtatBase("Base : hors ligne", true);
+        etatBaseLabel_->setToolTip(resultat.erreurs.join("\n"));
+    }
+
+    actualiserTableauDeBord();
+}
+
+void MainWindow::sauvegarderVersBase(bool silencieux)
+{
+    // Enregistrement automatique : seulement les tables modifiées.
+    // Bouton manuel : toutes les tables.
+    const unsigned masque = silencieux ? tablesModifiees_ : ~0u;
+    tablesModifiees_ = 0;
+
+    QStringList erreurs;
+    bool connexionPerdue = false;
+    unsigned aRecharger = 0;
+    int total = 0;
+
+    // L'ordre de TableId respecte les clés étrangères (clients avant commandes...)
+    for (int i = 0; i < NOMBRE_TABLES; ++i)
+    {
+        if ((masque & (1u << i)) == 0)
+        {
+            continue;
+        }
+
+        const ResultatSync resultat =
+            baseDeDonnees_->sauvegarder(static_cast<TableId>(i), tablePour(i));
+        total += resultat.lignes;
+
+        for (const QString& erreur : resultat.erreurs)
+        {
+            erreurs << QString("%1 — %2").arg(libelleTable(i), erreur);
+        }
+
+        if (resultat.suppressionRefusee)
+        {
+            aRecharger |= (1u << i);
+        }
+
+        if (!resultat.ok)
+        {
+            connexionPerdue = true;
+            break;
+        }
+    }
+
+    // Une suppression refusée par la base (élément encore utilisé) : la ligne
+    // réapparaît à l'écran au lieu de rester « supprimée » à tort.
+    if (aRecharger != 0)
+    {
+        synchronisationEnCours_ = true;
+        for (int i = 0; i < NOMBRE_TABLES; ++i)
+        {
+            if (aRecharger & (1u << i))
+            {
+                baseDeDonnees_->charger(static_cast<TableId>(i), tablePour(i), true);
+            }
+        }
+        synchronisationEnCours_ = false;
+    }
+
+    if (connexionPerdue)
+    {
+        autoSauvegarde_ = false;
+        afficherEtatBase("Base : hors ligne", true);
+        etatBaseLabel_->setToolTip(erreurs.join("\n"));
+    }
+    else
+    {
+        autoSauvegarde_ = true;
+        afficherEtatBase(
+            erreurs.isEmpty() ? "Base : enregistré"
+                              : "Base : enregistré avec erreurs",
+            !erreurs.isEmpty());
+        etatBaseLabel_->setToolTip(erreurs.join("\n"));
+    }
+
+    if (!erreurs.isEmpty())
+    {
+        QMessageBox::warning(this, "PostgreSQL", erreurs.join("\n"));
+    }
+    else if (!silencieux)
+    {
+        QMessageBox::information(
+            this,
+            "PostgreSQL",
+            QString("%1 ligne(s) enregistrée(s) dans la base.").arg(total));
+    }
+
+    actualiserTableauDeBord();
+}
+
+void MainWindow::closeEvent(QCloseEvent* event)
+{
+    // Enregistre les dernières modifications avant de quitter
+    if (sauvegardeTimer_ && sauvegardeTimer_->isActive() && autoSauvegarde_)
+    {
+        sauvegardeTimer_->stop();
+        sauvegarderVersBase(true);
+    }
+
+    QMainWindow::closeEvent(event);
+}
+
+
+// ================================================================
+// TABLEAU DE BORD ET STATISTIQUES (calculés depuis les tableaux,
+// donc toujours identiques à la base de données)
+// ================================================================
+
+void MainWindow::actualiserTableauDeBord()
+{
+    if (!pages_ || !commandesTable_ || !livraisonsTable_ ||
+        !incidentsTable_ || !vehiculesTable_ || !entrepotsTable_)
+    {
+        return;
+    }
+
+    auto compter = [](const QTableWidget* table, int colonne, const QStringList& statuts)
+    {
+        int nombre = 0;
+        for (int r = 0; r < table->rowCount(); ++r)
+        {
+            if (statuts.contains(enMinuscules(texteDe(table, r, colonne))))
+            {
+                ++nombre;
+            }
+        }
+        return nombre;
+    };
+
+    auto pourcentage = [](double partie, double total)
+    {
+        return total > 0 ? partie * 100.0 / total : 0.0;
+    };
+
+    auto etat = [](double valeur, double objectif)
+    {
+        if (valeur >= objectif)        return QString("Objectif atteint");
+        if (valeur >= objectif * 0.9)  return QString("Presque atteint");
+        return QString("En progression");
+    };
+
+    auto groupe = [](long long valeur)
+    {
+        QString chiffres = QString::number(valeur);
+        QString resultat;
+        int n = 0;
+        for (int i = chiffres.size() - 1; i >= 0; --i)
+        {
+            if (n > 0 && n % 3 == 0) resultat.prepend(' ');
+            resultat.prepend(chiffres[i]);
+            ++n;
+        }
+        return resultat;
+    };
+
+    const int nbCommandes   = commandesTable_->rowCount();
+    const int nbLivraisons  = livraisonsTable_->rowCount();
+    const int nbIncidents   = incidentsTable_->rowCount();
+    const int nbVehicules   = vehiculesTable_->rowCount();
+
+    const int livrees       = compter(livraisonsTable_, 6, {"livrée", "livree", "livré"});
+    const int enCours       = compter(livraisonsTable_, 6, {"en cours", "en transit"});
+    const int ouverts       = compter(incidentsTable_, 6, {"ouvert"});
+    const int resolus       = compter(incidentsTable_, 6, {"traité", "traite", "clos"});
+    const int horsService   = compter(vehiculesTable_, 5, {"maintenance", "indisponible", "en maintenance"});
+    const int enActivite    = compter(vehiculesTable_, 5, {"actif", "en mission", "en service"});
+
+    double kmTotal = 0;
+    for (int r = 0; r < vehiculesTable_->rowCount(); ++r)
+    {
+        kmTotal += nombreDe(texteDe(vehiculesTable_, r, 6));
+    }
+
+    double stock = 0, capacite = 0;
+    for (int r = 0; r < entrepotsTable_->rowCount(); ++r)
+    {
+        capacite += nombreDe(texteDe(entrepotsTable_, r, 3));
+        stock    += nombreDe(texteDe(entrepotsTable_, r, 4));
+    }
+
+    const double tauxLivraison = pourcentage(livrees, nbLivraisons);
+    const double tauxIncidents = pourcentage(resolus, nbIncidents);
+    const double tauxFlotte    = pourcentage(enActivite, nbVehicules);
+    const double tauxEntrepots = pourcentage(stock, capacite);
+
+    // ---------------- Tableau de bord ----------------
+
+    QWidget* tableauDeBord = pages_->widget(0);
+
+    const QList<QLabel*> valeurs =
+        tableauDeBord->findChildren<QLabel*>("cardValue");
+
+    if (valeurs.size() >= 4)
+    {
+        valeurs[0]->setText(QString::number(nbCommandes));
+        valeurs[1]->setText(QString::number(livrees));
+        valeurs[2]->setText(QString::number(enCours));
+        valeurs[3]->setText(QString::number(ouverts));
+    }
+
+    // Deuxième rangée : état de la flotte
+    if (valeurs.size() >= 7)
+    {
+        valeurs[4]->setText(QString::number(enActivite));
+        valeurs[5]->setText(QString::number(compter(vehiculesTable_, 5, {"maintenance", "en maintenance"})));
+        valeurs[6]->setText(QString::number(compter(vehiculesTable_, 5, {"disponible"})));
+    }
+
+    if (QTableWidget* recentes = tableauDeBord->findChild<QTableWidget*>("dashboardTable"))
+    {
+        // Les 5 commandes les plus récentes
+        QList<int> lignes;
+        for (int r = 0; r < commandesTable_->rowCount(); ++r) lignes << r;
+
+        std::stable_sort(lignes.begin(), lignes.end(), [this](int a, int b)
+        {
+            const QDate da = QDate::fromString(texteDe(commandesTable_, a, 4), "dd/MM/yyyy");
+            const QDate db = QDate::fromString(texteDe(commandesTable_, b, 4), "dd/MM/yyyy");
+            return da > db;
+        });
+
+        const int affichees = qMin(5, lignes.size());
+        recentes->setRowCount(affichees);
+
+        for (int i = 0; i < affichees; ++i)
+        {
+            for (int c = 0; c < 5; ++c)
+            {
+                recentes->setItem(i, c,
+                    new QTableWidgetItem(texteDe(commandesTable_, lignes[i], c)));
+            }
+        }
+    }
+
+    // ---------------- Statistiques ----------------
+
+    QWidget* statistiques = pages_->widget(11);
+
+    const QList<QLabel*> valeursStat =
+        statistiques->findChildren<QLabel*>("cardValue");
+    const QList<QLabel*> descriptionsStat =
+        statistiques->findChildren<QLabel*>("cardDescription");
+
+    if (valeursStat.size() >= 4 && descriptionsStat.size() >= 4)
+    {
+        valeursStat[0]->setText(QString("%1 %").arg(qRound(tauxLivraison)));
+        descriptionsStat[0]->setText("Livraisons réussies");
+
+        valeursStat[1]->setText(groupe(qRound64(kmTotal)) + " km");
+        descriptionsStat[1]->setText("Kilométrage total de la flotte");
+
+        valeursStat[2]->setText(QString::number(nbCommandes));
+        descriptionsStat[2]->setText("Commandes enregistrées");
+
+        valeursStat[3]->setText(QString::number(nbIncidents));
+        descriptionsStat[3]->setText("Incidents enregistrés");
+    }
+
+    if (QTableWidget* tableStat = statistiques->findChild<QTableWidget*>("dashboardTable"))
+    {
+        struct Ligne { QString indicateur, valeur, objectif, etat; };
+
+        const QList<Ligne> lignes = {
+            {"Livraisons réussies",
+             QString("%1 %").arg(qRound(tauxLivraison)), "95 %", etat(tauxLivraison, 95)},
+
+            {"Véhicules disponibles",
+             QString::number(nbVehicules - horsService), QString::number(nbVehicules),
+             etat(nbVehicules - horsService, nbVehicules)},
+
+            {"Incidents résolus",
+             QString("%1 %").arg(qRound(tauxIncidents)), "90 %", etat(tauxIncidents, 90)},
+
+            {"Utilisation flotte",
+             QString("%1 %").arg(qRound(tauxFlotte)), "80 %", etat(tauxFlotte, 80)},
+
+            {"Occupation entrepôts",
+             QString("%1 %").arg(qRound(tauxEntrepots)), "80 %", etat(tauxEntrepots, 80)}
+        };
+
+        tableStat->setRowCount(lignes.size());
+        for (int r = 0; r < lignes.size(); ++r)
+        {
+            tableStat->setItem(r, 0, new QTableWidgetItem(lignes[r].indicateur));
+            tableStat->setItem(r, 1, new QTableWidgetItem(lignes[r].valeur));
+            tableStat->setItem(r, 2, new QTableWidgetItem(lignes[r].objectif));
+            tableStat->setItem(r, 3, new QTableWidgetItem(lignes[r].etat));
+        }
+    }
+
+    if (QLabel* info = statistiques->findChild<QLabel*>("placeholderText"))
+    {
+        info->setText(
+            autoSauvegarde_
+                ? "Statistiques calculées à partir des données de l'application, "
+                  "synchronisées avec PostgreSQL."
+                : "Mode hors ligne : statistiques calculées à partir des données "
+                  "de démonstration affichées.");
+    }
 }
