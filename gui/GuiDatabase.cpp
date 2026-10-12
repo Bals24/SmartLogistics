@@ -199,7 +199,9 @@ namespace
             "commandes", "reference", "CMD", nullptr,
             {
                 cleCol("reference", Genre::Diese),
-                ref(1, "client_id", "clients", "nom", true),
+                // [POINT 8] La référence utilise le CODE du client (immuable),
+                // et non plus son nom, pour éviter les confusions d'homonymes.
+                ref(1, "client_id", "clients", "code", true),
                 col(2, "ville_livraison"),
                 copie(2, "adresse_livraison", Genre::Texte, true),
                 col(3, "statut", Genre::Code),

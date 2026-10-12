@@ -72,7 +72,8 @@ private:
     void supprimerCommande();
     void rechercherCommande();
     void actualiserCommandes();
-
+    void verifierAlertesMaintenance();
+     void mettreAJourStockEntrepot(const QString& ville, int delta);
     // ============================================================
     // Colis
     // ============================================================

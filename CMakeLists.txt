@@ -116,7 +116,7 @@ endif()
 # ============================================================
 
 file(GLOB_RECURSE SL_CORE_SOURCES CONFIGURE_DEPENDS src/*.cpp)
-
+file(GLOB_RECURSE SOURCES "src/*.cpp")
 # Le code PostgreSQL est traite a part.
 list(FILTER SL_CORE_SOURCES EXCLUDE REGEX "/src/database/")
 
@@ -212,3 +212,4 @@ if(SL_WITH_GUI)
         message(STATUS "Interface Qt : desactivee (Qt6 Widgets introuvable)")
     endif()
 endif()
+
