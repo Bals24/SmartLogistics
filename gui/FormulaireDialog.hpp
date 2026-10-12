@@ -27,6 +27,8 @@ struct ChampFormulaire
     Type type = Type::Texte;
     QStringList choix;        // pour Choix / ChoixEditable
     QString suffixe;          // pour Nombre : " km", " Ar", " kg", " colis"
+    bool decimal = false;     // pour Nombre : une decimale (poids d'un colis, ex : 2.5 kg)
+    QString defaut;           // valeur proposee a l'ajout (sinon 0 / premier choix)
     bool requis = false;
 };
 

@@ -40,9 +40,9 @@ namespace
         return valeur < 0 ? "-" + resultat : resultat;
     }
 
-    QString formaterNombre(double valeur, const QString& suffixe)
+    QString formaterNombre(double valeur, const QString& suffixe, bool decimal)
     {
-        if (suffixe.trimmed() == "kg")
+        if (decimal)
         {
             return QString::number(valeur, 'f', 1) + suffixe;
         }
@@ -122,7 +122,7 @@ FormulaireDialog::FormulaireDialog(const QString& titre,
 
                 const QString nombre = initiale.isEmpty()
                     ? QString("0")
-                    : QString::number(nombreDe(initiale), 'f', champ.suffixe.trimmed() == "kg" ? 1 : 0);
+                    : QString::number(nombreDe(initiale), 'f', champ.decimal ? 1 : 0);
                 saisie->setText(nombre);
 
                 if (!champ.suffixe.isEmpty())
@@ -184,7 +184,7 @@ QString FormulaireDialog::valeurDuChamp(int index) const
         case ChampFormulaire::Type::Nombre:
         {
             const QString saisie = static_cast<QLineEdit*>(widget)->text().trimmed();
-            return formaterNombre(nombreDe(saisie), champ.suffixe);
+            return formaterNombre(nombreDe(saisie), champ.suffixe, champ.decimal);
         }
 
         case ChampFormulaire::Type::LectureSeule:

@@ -118,6 +118,29 @@ void testAllocateurRessourcesRejetteSiIncompatible() {
     verifier(!resultat.reussie, "Un camion non-frigorifique est rejete pour un colis REFRIGERE");
 }
 
+void testAllocateurChoisitLeVehiculeAdapteMemeGrandeCapacite() {
+    // Regression : l'ancien score (1000 - gaspillage) devenait negatif pour les
+    // vehicules de grande capacite, et plus aucun vehicule n'etait choisi.
+    Client client("CLT-T4", "Client Test", "000", "Antananarivo");
+    Commande commande("ORD-T4", &client, "Toamasina");
+    commande.ajouterColis(ColisFactory::creer("STANDARD",
+        {"PKG-T4", "Colis leger", 100.0, 0.5, "A", "B", Priorite::STANDARD, {}, {}, {}, {}}));
+
+    auto petit = VehiculeFactory::creer("FOURGON", {"F-T4", "M", "M", 2000.0, 0.0, 80.0});
+    auto grand = VehiculeFactory::creer("CAMION",  {"C-T4", "M", "M", 5000.0, 0.0, 80.0});
+    std::vector<Vehicule*> vehicules{grand.get(), petit.get()};
+
+    Chauffeur conducteurB("DRV-T4B", "Leger", TypePermis::B, 4);
+    Chauffeur conducteurC("DRV-T4C", "Lourd", TypePermis::C, 9);
+    std::vector<Chauffeur*> chauffeurs{&conducteurB, &conducteurC};
+
+    ResultatAffectation resultat = AllocateurRessources::affecter(commande, vehicules, chauffeurs);
+    verifier(resultat.reussie, "Un vehicule de 2000 kg est trouve pour un colis de 100 kg");
+    verifier(resultat.vehicule == petit.get(),
+             "Le vehicule le plus adapte (le plus petit suffisant) est prefere au camion");
+    verifier(resultat.score > 0.0, "Le score d'un vehicule choisi est positif");
+}
+
 void testPersistanceJSONRoundTrip() {
     Client original("CLT-T3", "Test JSON", "011", "Fianarantsoa");
     auto j = PersistanceJSON::versJson(original);
@@ -139,6 +162,7 @@ int main() {
     testDijkstraPlusCourtChemin();
     testDijkstraIgnoreRouteBloquee();
     testAllocateurRessourcesRejetteSiIncompatible();
+    testAllocateurChoisitLeVehiculeAdapteMemeGrandeCapacite();
     testPersistanceJSONRoundTrip();
 
     std::cout << "\n";

@@ -1,11 +1,17 @@
 #include "services/AllocateurRessources.hpp"
 
+#include <limits>
+
 namespace sl {
 
 double AllocateurRessources::calculerScore(const Vehicule& vehicule, double poidsCommandeKg) {
-    double gaspillage = vehicule.getCapaciteKg() - poidsCommandeKg; // >= 0 ici (filtre en amont)
-    double scoreCapacite = 1000.0 - gaspillage;   // capacite "juste" => meilleur score
-    double scoreCarburant = vehicule.getNiveauCarburantPct();
+    // Taux de remplissage du vehicule (0 a 100) : plus la commande "remplit"
+    // le vehicule, moins on gaspille de capacite. Contrairement a l'ancienne
+    // formule (1000 - gaspillage), ce score ne devient jamais negatif, quelle
+    // que soit la capacite du vehicule (camion de 5 T compris).
+    const double capacite = vehicule.getCapaciteKg();
+    const double scoreCapacite = capacite > 0.0 ? (poidsCommandeKg / capacite) * 100.0 : 0.0;
+    const double scoreCarburant = vehicule.getNiveauCarburantPct();   // 0 a 100
     return scoreCapacite * 0.7 + scoreCarburant * 0.3;
 }
 
@@ -19,7 +25,7 @@ ResultatAffectation AllocateurRessources::affecter(
     const bool besoinFrigo = commande.necessiteVehiculeSpecial();
 
     Vehicule* meilleurVehicule = nullptr;
-    double meilleurScore = -1.0;
+    double meilleurScore = std::numeric_limits<double>::lowest();
 
     for (Vehicule* v : vehiculesDisponibles) {
         if (v->getStatut() != StatutVehicule::DISPONIBLE) continue;

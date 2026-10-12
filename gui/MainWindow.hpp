@@ -256,6 +256,9 @@ private:
 
     void actualiserTableauDeBord();
 
+    // Affectation automatique (AllocateurRessources) d'une livraison planifiée
+    void affecterAutomatiquement();
+
     std::unique_ptr<GuiDatabase> baseDeDonnees_;
     QTimer* sauvegardeTimer_ = nullptr;
     QTimer* statistiquesTimer_ = nullptr;

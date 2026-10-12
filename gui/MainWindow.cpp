@@ -3,6 +3,12 @@
 #include "GuiDatabase.hpp"
 #include "FormulaireDialog.hpp"
 
+#include "entities/Chauffeur.hpp"
+#include "entities/Commande.hpp"
+#include "factories/ColisFactory.hpp"
+#include "factories/VehiculeFactory.hpp"
+#include "services/AllocateurRessources.hpp"
+
 #include <QCloseEvent>
 #include <QDate>
 #include <QFrame>
@@ -19,6 +25,8 @@
 #include <QRegularExpression>
 #include <QTimer>
 #include <algorithm>
+#include <memory>
+#include <vector>
 #include <QTableWidget>
 #include <QTableWidgetItem>
 #include <QVBoxLayout>
@@ -1011,7 +1019,7 @@ QWidget* MainWindow::createVehiculesPage()
 
     vehiculesTable_ = new QTableWidget();
 
-    vehiculesTable_->setColumnCount(7);
+    vehiculesTable_->setColumnCount(9);
 
     vehiculesTable_->setHorizontalHeaderLabels({
         "ID",
@@ -1020,15 +1028,17 @@ QWidget* MainWindow::createVehiculesPage()
         "Modèle",
         "Type",
         "Statut",
-        "Kilométrage"
+        "Kilométrage",
+        "Capacité",
+        "Carburant"
     });
 
     QStringList data = {
-        "VEH-001|1234 TAA|Toyota|Hiace|Utilitaire|Actif|85 200 km",
-        "VEH-002|5678 TAB|Renault|Master|Fourgon|Actif|62 500 km",
-        "VEH-003|9012 TAC|Ford|Transit|Fourgon|Maintenance|120 300 km",
-        "VEH-004|3456 TAD|Mercedes|Sprinter|Utilitaire|Actif|74 800 km",
-        "VEH-005|7890 TAE|Peugeot|Boxer|Fourgon|Disponible|51 200 km"
+        "VEH-001|1234 TAA|Toyota|Hiace|Utilitaire|Actif|85 200 km|1 200 kg|75 %",
+        "VEH-002|5678 TAB|Renault|Master|Fourgon|Actif|62 500 km|1 500 kg|60 %",
+        "VEH-003|9012 TAC|Ford|Transit|Fourgon|Maintenance|120 300 km|1 500 kg|40 %",
+        "VEH-004|3456 TAD|Mercedes|Sprinter|Utilitaire|Actif|74 800 km|1 200 kg|90 %",
+        "VEH-005|7890 TAE|Peugeot|Boxer|Fourgon|Disponible|51 200 km|3 500 kg|55 %"
     };
 
     vehiculesTable_->setRowCount(data.size());
@@ -1129,7 +1139,7 @@ QWidget* MainWindow::createChauffeursPage()
 
     chauffeursTable_ = new QTableWidget();
 
-    chauffeursTable_->setColumnCount(6);
+    chauffeursTable_->setColumnCount(7);
 
     chauffeursTable_->setHorizontalHeaderLabels({
         "ID",
@@ -1137,15 +1147,16 @@ QWidget* MainWindow::createChauffeursPage()
         "Téléphone",
         "Permis",
         "Véhicule",
-        "Statut"
+        "Statut",
+        "Expérience"
     });
 
     QStringList data = {
-        "CHA-001|Chauffeur A|034 11 111 01|B|VEH-001|Disponible",
-        "CHA-002|Chauffeur B|034 11 111 02|C|VEH-002|En livraison",
-        "CHA-003|Chauffeur C|034 11 111 03|B|VEH-003|Indisponible",
-        "CHA-004|Chauffeur D|034 11 111 04|C|VEH-004|Disponible",
-        "CHA-005|Chauffeur E|034 11 111 05|B|VEH-005|En livraison"
+        "CHA-001|Chauffeur A|034 11 111 01|B|VEH-001|Disponible|5 ans",
+        "CHA-002|Chauffeur B|034 11 111 02|C|VEH-002|En livraison|12 ans",
+        "CHA-003|Chauffeur C|034 11 111 03|B|VEH-003|Indisponible|3 ans",
+        "CHA-004|Chauffeur D|034 11 111 04|C|VEH-004|Disponible|8 ans",
+        "CHA-005|Chauffeur E|034 11 111 05|B|VEH-005|En livraison|2 ans"
     };
 
     chauffeursTable_->setRowCount(data.size());
@@ -1358,6 +1369,14 @@ QWidget* MainWindow::createLivraisonsPage()
     search->addWidget(rechercheLivraison_);
     search->addWidget(rechercher);
     search->addWidget(actualiser);
+
+    QPushButton* affecter =
+        new QPushButton("Affecter automatiquement");
+
+    connect(affecter, &QPushButton::clicked,
+            this, [this]() { affecterAutomatiquement(); });
+
+    search->addWidget(affecter);
 
     layout->addLayout(search);
 
@@ -2887,6 +2906,18 @@ QList<ChampFormulaire> MainWindow::champsPour(QTableWidget* table) const
         return liste;
     };
 
+    auto avecDefaut = [](ChampFormulaire c, const QString& valeur)
+    {
+        c.defaut = valeur;
+        return c;
+    };
+
+    auto avecDecimale = [](ChampFormulaire c)
+    {
+        c.decimal = true;
+        return c;
+    };
+
     if (table == clientsTable_)
     {
         return {
@@ -2910,7 +2941,9 @@ QList<ChampFormulaire> MainWindow::champsPour(QTableWidget* table) const
                   {"Utilitaire", "Fourgon", "Camion", "Moto", "Frigorifique"}),
             champ("Statut", T::Choix,
                   {"Disponible", "Actif", "En mission", "Maintenance", "Indisponible"}),
-            champ("Kilométrage", T::Nombre, {}, " km")
+            champ("Kilométrage", T::Nombre, {}, " km"),
+            avecDefaut(champ("Capacité", T::Nombre, {}, " kg"), "1000 kg"),
+            avecDefaut(champ("Carburant", T::Nombre, {}, " %"), "100 %")
         };
     }
 
@@ -2923,7 +2956,8 @@ QList<ChampFormulaire> MainWindow::champsPour(QTableWidget* table) const
             champ("Permis", T::Choix, {"B", "C", "C1", "MOTO"}),
             champ("Véhicule", T::Choix, avecAucun(valeursDeColonne(vehiculesTable_, 0))),
             champ("Statut", T::Choix,
-                  {"Disponible", "En livraison", "En congé", "Indisponible"})
+                  {"Disponible", "En livraison", "En congé", "Indisponible"}),
+            avecDefaut(champ("Expérience", T::Nombre, {}, " ans"), "3 ans")
         };
     }
 
@@ -2971,7 +3005,7 @@ QList<ChampFormulaire> MainWindow::champsPour(QTableWidget* table) const
             champ("ID Colis", T::LectureSeule),
             champ("Commande", T::Choix, valeursDeColonne(commandesTable_, 0, true), {}, true),
             champ("Type", T::ChoixEditable, {"Standard", "Fragile", "Volumineux"}),
-            champ("Poids", T::Nombre, {}, " kg"),
+            avecDecimale(champ("Poids", T::Nombre, {}, " kg")),
             champ("Statut", T::Choix,
                   {"En attente", "En cours", "En transit", "Livré", "Incident"}),
             champ("Destination", T::ChoixEditable, VILLES),
@@ -3082,6 +3116,14 @@ void MainWindow::ajouterLigne(QTableWidget* table, const QString& prefixe, const
             default:
                 initiales << QString();
                 break;
+        }
+    }
+
+    for (int c = 0; c < champs.size(); ++c)
+    {
+        if (!champs[c].defaut.isEmpty())
+        {
+            initiales[c] = champs[c].defaut;
         }
     }
 
@@ -3676,5 +3718,250 @@ void MainWindow::actualiserTableauDeBord()
                   "synchronisées avec PostgreSQL."
                 : "Mode hors ligne : statistiques calculées à partir des données "
                   "de démonstration affichées.");
+    }
+}
+
+
+// ================================================================
+// AFFECTATION AUTOMATIQUE (logique métier : AllocateurRessources)
+// ================================================================
+
+void MainWindow::affecterAutomatiquement()
+{
+    const int ligne = livraisonsTable_->currentRow();
+
+    if (ligne < 0)
+    {
+        QMessageBox::information(
+            this, "Affectation",
+            "Sélectionnez d'abord une livraison « Planifiée » dans le tableau.");
+        return;
+    }
+
+    const QString statut = enMinuscules(texteDe(livraisonsTable_, ligne, 6));
+    if (statut != "planifiée" && statut != "planifiee")
+    {
+        QMessageBox::information(
+            this, "Affectation",
+            "Seule une livraison « Planifiée » peut être affectée automatiquement.\n"
+            "Statut actuel : " + texteDe(livraisonsTable_, ligne, 6));
+        return;
+    }
+
+    auto sansDiese = [](QString texte)
+    {
+        texte = texte.trimmed();
+        if (texte.startsWith('#')) texte.remove(0, 1);
+        return texte;
+    };
+
+    const QString codeCommande = sansDiese(texteDe(livraisonsTable_, ligne, 1));
+    const QString destination  = texteDe(livraisonsTable_, ligne, 5);
+
+    // --- 1. Les colis de la commande : poids total et besoin de froid ---
+    double poids = 0.0;
+    int nombreColis = 0;
+    bool frigorifique = false;
+
+    for (int r = 0; r < colisTable_->rowCount(); ++r)
+    {
+        if (sansDiese(texteDe(colisTable_, r, 1)) != codeCommande) continue;
+
+        ++nombreColis;
+        poids += nombreDe(texteDe(colisTable_, r, 3));
+
+        const QString type = enMinuscules(texteDe(colisTable_, r, 2));
+        if (type.contains("frigo") || type.contains("réfrig") || type.contains("refrig"))
+        {
+            frigorifique = true;
+        }
+    }
+
+    if (nombreColis == 0)
+    {
+        QMessageBox::information(
+            this, "Affectation",
+            QString("Aucun colis n'est rattaché à la commande %1.\n"
+                    "Ajoutez d'abord ses colis dans la page Colis.").arg(codeCommande));
+        return;
+    }
+
+    try
+    {
+        // --- 2. Objets métier ---
+        sl::Commande commande(codeCommande.toStdString(), nullptr, destination.toStdString());
+
+        sl::ParametresColis parametresColis;
+        parametresColis.id = codeCommande.toStdString() + "-LOT";
+        parametresColis.description = "Colis de la commande";
+        parametresColis.poidsKg = poids;
+        parametresColis.volumeM3 = 0.1;
+        parametresColis.origine = "Entrepôt";
+        parametresColis.destination = destination.toStdString();
+        if (frigorifique)
+        {
+            parametresColis.temperatureMinC = 2.0;
+            parametresColis.temperatureMaxC = 8.0;
+        }
+        commande.ajouterColis(
+            sl::ColisFactory::creer(frigorifique ? "REFRIGERE" : "STANDARD", parametresColis));
+
+        // Véhicules « Disponible » (le lien code <-> ligne sert à mettre l'écran à jour)
+        std::vector<std::unique_ptr<sl::Vehicule>> vehicules;
+        std::vector<sl::Vehicule*> poolVehicules;
+        std::vector<int> ligneDuVehicule;
+
+        for (int r = 0; r < vehiculesTable_->rowCount(); ++r)
+        {
+            if (enMinuscules(texteDe(vehiculesTable_, r, 5)) != "disponible") continue;
+
+            std::string type = texteDe(vehiculesTable_, r, 4).toUpper().replace(' ', '_').toStdString();
+            if (type == "UTILITAIRE") type = "FOURGON";
+
+            sl::ParametresVehicule p;
+            p.immatriculation    = texteDe(vehiculesTable_, r, 1).toStdString();
+            p.marque             = texteDe(vehiculesTable_, r, 2).toStdString();
+            p.modele             = texteDe(vehiculesTable_, r, 3).toStdString();
+            p.kilometrage        = nombreDe(texteDe(vehiculesTable_, r, 6));
+            p.capaciteKg         = nombreDe(texteDe(vehiculesTable_, r, 7));
+            p.niveauCarburantPct = nombreDe(texteDe(vehiculesTable_, r, 8));
+
+            try
+            {
+                vehicules.push_back(sl::VehiculeFactory::creer(type, p));
+                poolVehicules.push_back(vehicules.back().get());
+                ligneDuVehicule.push_back(r);
+            }
+            catch (const std::exception&)
+            {
+                // type de véhicule que le moteur ne gère pas : ignoré
+            }
+        }
+
+        // Chauffeurs « Disponible »
+        std::vector<std::unique_ptr<sl::Chauffeur>> chauffeurs;
+        std::vector<sl::Chauffeur*> poolChauffeurs;
+        std::vector<int> ligneDuChauffeur;
+
+        for (int r = 0; r < chauffeursTable_->rowCount(); ++r)
+        {
+            if (enMinuscules(texteDe(chauffeursTable_, r, 5)) != "disponible") continue;
+
+            const QString permis = texteDe(chauffeursTable_, r, 3).toUpper();
+            sl::TypePermis typePermis = sl::TypePermis::B;
+            if (permis == "C")    typePermis = sl::TypePermis::C;
+            if (permis == "C1")   typePermis = sl::TypePermis::C1;
+            if (permis == "MOTO") typePermis = sl::TypePermis::MOTO;
+
+            chauffeurs.push_back(std::make_unique<sl::Chauffeur>(
+                texteDe(chauffeursTable_, r, 0).toStdString(),
+                texteDe(chauffeursTable_, r, 1).toStdString(),
+                typePermis,
+                static_cast<int>(nombreDe(texteDe(chauffeursTable_, r, 6)))));
+
+            poolChauffeurs.push_back(chauffeurs.back().get());
+            ligneDuChauffeur.push_back(r);
+        }
+
+        if (poolVehicules.empty())
+        {
+            QMessageBox::warning(
+                this, "Affectation impossible",
+                "Aucun véhicule n'est disponible.\n\n"
+                "Seuls les véhicules au statut « Disponible » (et d'un type géré : "
+                "camion, fourgon, utilitaire, moto, frigorifique) peuvent être affectés.");
+            return;
+        }
+
+        if (poolChauffeurs.empty())
+        {
+            QMessageBox::warning(
+                this, "Affectation impossible",
+                "Aucun chauffeur n'est disponible.\n\n"
+                "Seuls les chauffeurs au statut « Disponible » peuvent être affectés.");
+            return;
+        }
+
+        // --- 3. Décision du moteur métier ---
+        const sl::ResultatAffectation resultat =
+            sl::AllocateurRessources::affecter(commande, poolVehicules, poolChauffeurs);
+
+        if (!resultat.reussie)
+        {
+            QMessageBox::warning(
+                this, "Affectation impossible",
+                QString::fromStdString(resultat.raisonEchec) +
+                QString("\n\nCommande %1 : %2 kg%3\n"
+                        "Véhicules disponibles : %4 — Chauffeurs disponibles : %5")
+                    .arg(codeCommande)
+                    .arg(poids, 0, 'f', 1)
+                    .arg(frigorifique ? " (froid nécessaire)" : "")
+                    .arg(poolVehicules.size())
+                    .arg(poolChauffeurs.size()));
+            return;
+        }
+
+        // --- 4. Mise à jour de l'écran (l'enregistrement en base suit tout seul) ---
+        int ligneVehicule = -1;
+        for (std::size_t i = 0; i < poolVehicules.size(); ++i)
+        {
+            if (poolVehicules[i] == resultat.vehicule) ligneVehicule = ligneDuVehicule[i];
+        }
+
+        int ligneChauffeur = -1;
+        for (std::size_t i = 0; i < poolChauffeurs.size(); ++i)
+        {
+            if (poolChauffeurs[i] == resultat.chauffeur) ligneChauffeur = ligneDuChauffeur[i];
+        }
+
+        const QString codeVehicule  = texteDe(vehiculesTable_, ligneVehicule, 0);
+        const QString codeChauffeur = texteDe(chauffeursTable_, ligneChauffeur, 0);
+
+        auto definir = [](QTableWidget* table, int l, int c, const QString& valeur)
+        {
+            if (QTableWidgetItem* item = table->item(l, c))
+                item->setText(valeur);
+            else
+                table->setItem(l, c, new QTableWidgetItem(valeur));
+        };
+
+        definir(livraisonsTable_, ligne, 3, codeChauffeur);
+        definir(livraisonsTable_, ligne, 4, codeVehicule);
+        definir(livraisonsTable_, ligne, 6, "En cours");
+
+        definir(vehiculesTable_,  ligneVehicule,  5, "En mission");
+        definir(chauffeursTable_, ligneChauffeur, 4, codeVehicule);
+        definir(chauffeursTable_, ligneChauffeur, 5, "En livraison");
+
+        for (int r = 0; r < commandesTable_->rowCount(); ++r)
+        {
+            if (sansDiese(texteDe(commandesTable_, r, 0)) == codeCommande)
+            {
+                definir(commandesTable_, r, 3, "En cours");
+            }
+        }
+
+        QMessageBox::information(
+            this, "Affectation réussie",
+            QString("Livraison %1 (commande %2 : %3 kg%4)\n\n"
+                    "Véhicule : %5 — %6 %7, capacité %8 kg, carburant %9 %\n"
+                    "Chauffeur : %10 — permis %11, %12 ans d'expérience\n\n"
+                    "Score du véhicule : %13")
+                .arg(texteDe(livraisonsTable_, ligne, 0), codeCommande)
+                .arg(poids, 0, 'f', 1)
+                .arg(frigorifique ? ", froid" : "")
+                .arg(codeVehicule,
+                     QString::fromStdString(resultat.vehicule->getMarque()),
+                     QString::fromStdString(resultat.vehicule->getModele()))
+                .arg(resultat.vehicule->getCapaciteKg(), 0, 'f', 0)
+                .arg(resultat.vehicule->getNiveauCarburantPct(), 0, 'f', 0)
+                .arg(codeChauffeur,
+                     texteDe(chauffeursTable_, ligneChauffeur, 3))
+                .arg(resultat.chauffeur->getExperienceAnnees())
+                .arg(resultat.score, 0, 'f', 1));
+    }
+    catch (const std::exception& e)
+    {
+        QMessageBox::warning(this, "Affectation", QString::fromUtf8(e.what()));
     }
 }

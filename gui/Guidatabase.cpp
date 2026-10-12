@@ -57,6 +57,9 @@ namespace
         Ar,             // "125 000 Ar"   <-> 125000
         Kg,             // "2.5 kg"       <-> 2.5
         Colis,          // "500 colis"    <-> 500
+        KgEntier,       // "5 000 kg"     <-> 5000
+        Pourcent,       // "75 %"         <-> 75
+        Annees,         // "8 ans"        <-> 8
         Duree,          // "8h 30"        <-> 510 (minutes)
         Date,           // "22/09/2026"   <-> 2026-09-22
         Diese,          // "#CMD-001"     <-> CMD-001
@@ -150,7 +153,9 @@ namespace
                 col(3, "modele"),
                 col(4, "type", Genre::Code),
                 col(5, "statut", Genre::Code),
-                col(6, "kilometrage", Genre::Km)
+                col(6, "kilometrage", Genre::Km),
+                col(7, "capacite_kg", Genre::KgEntier),
+                col(8, "niveau_carburant_pct", Genre::Pourcent)
             }};
 
         static const Spec chauffeurs{
@@ -162,7 +167,8 @@ namespace
                 copie(0, "numero_permis", Genre::Cle, false, false),
                 col(3, "type_permis"),
                 col(4, "vehicule_affecte"),
-                col(5, "statut", Genre::Code)
+                col(5, "statut", Genre::Code),
+                col(6, "experience_annees", Genre::Annees)
             }};
 
         static const Spec entrepots{
@@ -384,9 +390,12 @@ namespace
             case Genre::Km:
             case Genre::Ar:
             case Genre::Kg:
+            case Genre::KgEntier:
+            case Genre::Pourcent:
                 return nombreDepuisAffichage(texte).toStdString();
 
             case Genre::Colis:
+            case Genre::Annees:
                 return chiffresSeulement(texte).toStdString();
 
             case Genre::Duree:
@@ -438,6 +447,15 @@ namespace
 
             case Genre::Colis:
                 return QString::number(std::atoi(valeur.c_str())) + " colis";
+
+            case Genre::KgEntier:
+                return groupeParTrois(std::llround(std::atof(valeur.c_str()))) + " kg";
+
+            case Genre::Pourcent:
+                return QString::number(std::llround(std::atof(valeur.c_str()))) + " %";
+
+            case Genre::Annees:
+                return QString::number(std::atoi(valeur.c_str())) + " ans";
 
             case Genre::Duree:
                 return affichageDepuisMinutes(std::atoi(valeur.c_str()));
@@ -504,6 +522,8 @@ namespace
 
         "ALTER TABLE chauffeurs  ADD COLUMN IF NOT EXISTS code VARCHAR(30)",
         "ALTER TABLE chauffeurs  ADD COLUMN IF NOT EXISTS vehicule_affecte VARCHAR(30)",
+        "ALTER TABLE chauffeurs  ADD COLUMN IF NOT EXISTS experience_annees INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE vehicules   ADD COLUMN IF NOT EXISTS niveau_carburant_pct NUMERIC(5,2) NOT NULL DEFAULT 100",
         "CREATE UNIQUE INDEX IF NOT EXISTS ux_chauffeurs_code ON chauffeurs(code)",
 
         "ALTER TABLE entrepots   ADD COLUMN IF NOT EXISTS code VARCHAR(30)",
