@@ -1,11 +1,13 @@
 # Fichiers de compilation CMake
 build/
+build-*/
 cmake-build-*/
 CMakeFiles/
 CMakeCache.txt
 compile_commands.json
 .ninja_deps
 .ninja_log
+CMakeLists.txt.user*
 
 # Exécutables et fichiers compilés
 *.exe
@@ -18,6 +20,7 @@ compile_commands.json
 # Configuration locale des éditeurs
 .vscode/
 .idea/
+.qtc_clangd/
 
 # Fichiers système
 Thumbs.db
@@ -26,7 +29,8 @@ Thumbs.db
 # Journaux
 *.log
 
-# Secrets et variables d'environnement
+# Secrets et variables d'environnement (le mot de passe PostgreSQL ne doit
+# jamais être dans le dépôt : variable d'environnement SL_DB_PASSWORD)
 .env
 .env.*
 !.env.example
