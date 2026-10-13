@@ -94,7 +94,7 @@ namespace SmartLogistics
           port_(variableOuDefaut("SL_DB_PORT", "5432")),
           database_(variableOuDefaut("SL_DB_NAME", "smart_logistics")),
           user_(variableOuDefaut("SL_DB_USER", "postgres")),
-          password_("1234")
+          password_("")
     {
     }
 

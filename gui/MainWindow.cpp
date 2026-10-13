@@ -54,6 +54,13 @@ namespace
         return villes;
     }
 
+    // texteDe DOIT être définie AVANT valeursDeVehicules qui l'utilise
+    QString texteDe(const QTableWidget* table, int ligne, int colonne)
+    {
+        const QTableWidgetItem* item = table->item(ligne, colonne);
+        return item ? item->text().trimmed() : QString();
+    }
+
     QStringList valeursDeColonne(const QTableWidget* table, int colonne, bool sansDiese = false)
     {
         QStringList liste;
@@ -67,10 +74,19 @@ namespace
         return liste;
     }
 
-    QString texteDe(const QTableWidget* table, int ligne, int colonne)
+    // [LOGIQUE MÉTIER] Retourne "Marque Modèle (Immatriculation)" pour une identification claire
+    QStringList valeursDeVehicules(const QTableWidget* table)
     {
-        const QTableWidgetItem* item = table->item(ligne, colonne);
-        return item ? item->text().trimmed() : QString();
+        QStringList liste;
+        for (int r = 0; r < table->rowCount(); ++r) {
+            QString immat = texteDe(table, r, 1);
+            QString marque = texteDe(table, r, 2);
+            QString modele = texteDe(table, r, 3);
+            if (!immat.isEmpty()) {
+                liste << marque + " " + modele + " (" + immat + ")";
+            }
+        }
+        return liste;
     }
 
     double nombreDe(QString texte)
@@ -168,7 +184,7 @@ MainWindow::MainWindow(QWidget* parent)
 MainWindow::~MainWindow() = default;
 
 // ================================================================
-// SIDEBAR
+// SIDEBAR & TOPBAR & DASHBOARD (inchangés pour brièveté, inclus dans le fichier complet)
 // ================================================================
 QWidget* MainWindow::createSidebar()
 {
@@ -210,9 +226,6 @@ QWidget* MainWindow::createSidebar()
     return sidebar;
 }
 
-// ================================================================
-// BARRE SUPÉRIEURE
-// ================================================================
 QWidget* MainWindow::createTopBar()
 {
     QWidget* topBar = new QWidget();
@@ -242,9 +255,6 @@ QWidget* MainWindow::createTopBar()
     return topBar;
 }
 
-// ================================================================
-// TABLEAU DE BORD
-// ================================================================
 QWidget* MainWindow::createDashboard()
 {
     QWidget* page = new QWidget();
@@ -299,7 +309,7 @@ QWidget* MainWindow::createDashboard()
 }
 
 // ================================================================
-// UTILITAIRES CRUD
+// UTILITAIRES CRUD & PAGES
 // ================================================================
 static int prochainNumero(QTableWidget* table, const QString& prefixe)
 {
@@ -329,9 +339,6 @@ static void configurerTable(QTableWidget* table)
     table->setAlternatingRowColors(true);
 }
 
-// ================================================================
-// PAGES (toutes vides au démarrage)
-// ================================================================
 QWidget* MainWindow::createCommandesPage()
 {
     QWidget* page = new QWidget();
@@ -345,28 +352,7 @@ QWidget* MainWindow::createCommandesPage()
     QPushButton* rechercher = new QPushButton("Rechercher"); QPushButton* actualiser = new QPushButton("Actualiser");
     search->addWidget(rechercheCommande_); search->addWidget(rechercher); search->addWidget(actualiser); layout->addLayout(search);
     commandesTable_ = new QTableWidget(); commandesTable_->setColumnCount(6);
-    
-    // [CORRECTION] Affichage du nom du client au lieu du code
-    commandesTable_->setHorizontalHeaderLabels({
-        "Commande", "Client", "Destination", "Statut", "Date", "Montant"
-    });
-    
-    // [CORRECTION] Données de démo avec des noms
-    QStringList data = {
-        "#CMD-001|Client A|Antananarivo|Livrée|22/09/2026|125 000 Ar",
-        "#CMD-002|Client B|Toamasina|En cours|22/09/2026|280 000 Ar",
-        "#CMD-003|Client C|Fianarantsoa|En transit|21/09/2026|175 000 Ar",
-        "#CMD-004|Client D|Mahajanga|Livrée|21/09/2026|320 000 Ar",
-        "#CMD-005|Client E|Antsirabe|Incident|20/09/2026|150 000 Ar"
-    };
-    
-    commandesTable_->setRowCount(data.size());
-    for (int r = 0; r < data.size(); ++r) {
-        QStringList values = data[r].split("|");
-        for (int c = 0; c < values.size(); ++c) {
-            commandesTable_->setItem(r, c, new QTableWidgetItem(values[c]));
-        }
-    }
+    commandesTable_->setHorizontalHeaderLabels({"Commande", "Client", "Destination", "Statut", "Date", "Montant"});
     configurerTable(commandesTable_); layout->addWidget(commandesTable_);
     connect(ajouter, &QPushButton::clicked, this, [this]() { ajouterCommande(); });
     connect(modifier, &QPushButton::clicked, this, [this]() { modifierCommande(); });
@@ -624,7 +610,7 @@ QWidget* MainWindow::createStatistiquesPage()
 }
 
 // ================================================================
-// NAVIGATION & RECHERCHE
+// NAVIGATION & RECHERCHE & ACTIONS CRUD
 // ================================================================
 QPushButton* MainWindow::createMenuButton(const QString& text)
 {
@@ -661,13 +647,9 @@ static void rechercherDansTable(QTableWidget* table, const QString& recherche)
     }
 }
 
-// ================================================================
-// ACTIONS CRUD
-// ================================================================
 void MainWindow::ajouterCommande() { ajouterLigne(commandesTable_, "#CMD", "Nouveau : commande"); }
 void MainWindow::modifierCommande() { modifierLigne(commandesTable_, "Modifier : commande"); }
-void MainWindow::supprimerCommande()
-{
+void MainWindow::supprimerCommande() {
     int row = commandesTable_->currentRow();
     if (row < 0) { QMessageBox::information(this, "Suppression", "Sélectionnez d'abord une commande."); return; }
     if (QMessageBox::question(this, "Suppression", "Voulez-vous supprimer cette commande ?", QMessageBox::Yes | QMessageBox::No) == QMessageBox::Yes) commandesTable_->removeRow(row);
@@ -677,8 +659,7 @@ void MainWindow::actualiserCommandes() { rechargerDepuisBase(5); rechercheComman
 
 void MainWindow::ajouterColis() { ajouterLigne(colisTable_, "COL", "Nouveau : colis"); }
 void MainWindow::modifierColis() { modifierLigne(colisTable_, "Modifier : colis"); }
-void MainWindow::supprimerColis()
-{
+void MainWindow::supprimerColis() {
     int row = colisTable_->currentRow();
     if (row < 0) { QMessageBox::information(this, "Suppression", "Sélectionnez d'abord un colis."); return; }
     QString destination = texteDe(colisTable_, row, 5);
@@ -692,8 +673,7 @@ void MainWindow::actualiserColis() { rechargerDepuisBase(6); rechercheColis_->cl
 
 void MainWindow::ajouterClient() { ajouterLigne(clientsTable_, "CLI", "Nouveau : client"); }
 void MainWindow::modifierClient() { modifierLigne(clientsTable_, "Modifier : client"); }
-void MainWindow::supprimerClient()
-{
+void MainWindow::supprimerClient() {
     int row = clientsTable_->currentRow();
     if (row < 0) { QMessageBox::information(this, "Suppression", "Sélectionnez d'abord un client."); return; }
     if (QMessageBox::question(this, "Suppression", "Voulez-vous supprimer ce client ?", QMessageBox::Yes | QMessageBox::No) == QMessageBox::Yes) clientsTable_->removeRow(row);
@@ -703,8 +683,7 @@ void MainWindow::actualiserClients() { rechargerDepuisBase(0); rechercheClient_-
 
 void MainWindow::ajouterVehicule() { ajouterLigne(vehiculesTable_, "VEH", "Nouveau : véhicule"); }
 void MainWindow::modifierVehicule() { modifierLigne(vehiculesTable_, "Modifier : véhicule"); }
-void MainWindow::supprimerVehicule()
-{
+void MainWindow::supprimerVehicule() {
     int row = vehiculesTable_->currentRow();
     if (row < 0) { QMessageBox::information(this, "Suppression", "Sélectionnez d'abord un véhicule."); return; }
     if (QMessageBox::question(this, "Suppression", "Voulez-vous supprimer ce véhicule ?", QMessageBox::Yes | QMessageBox::No) == QMessageBox::Yes) vehiculesTable_->removeRow(row);
@@ -714,8 +693,7 @@ void MainWindow::actualiserVehicules() { rechargerDepuisBase(1); rechercheVehicu
 
 void MainWindow::ajouterChauffeur() { ajouterLigne(chauffeursTable_, "CHA", "Nouveau : chauffeur"); }
 void MainWindow::modifierChauffeur() { modifierLigne(chauffeursTable_, "Modifier : chauffeur"); }
-void MainWindow::supprimerChauffeur()
-{
+void MainWindow::supprimerChauffeur() {
     int row = chauffeursTable_->currentRow();
     if (row < 0) { QMessageBox::information(this, "Suppression", "Sélectionnez d'abord un chauffeur."); return; }
     if (QMessageBox::question(this, "Suppression", "Voulez-vous supprimer ce chauffeur ?", QMessageBox::Yes | QMessageBox::No) == QMessageBox::Yes) chauffeursTable_->removeRow(row);
@@ -725,8 +703,7 @@ void MainWindow::actualiserChauffeurs() { rechargerDepuisBase(2); rechercheChauf
 
 void MainWindow::ajouterEntrepot() { ajouterLigne(entrepotsTable_, "ENT", "Nouveau : entrepôt"); }
 void MainWindow::modifierEntrepot() { modifierLigne(entrepotsTable_, "Modifier : entrepôt"); }
-void MainWindow::supprimerEntrepot()
-{
+void MainWindow::supprimerEntrepot() {
     int row = entrepotsTable_->currentRow();
     if (row < 0) { QMessageBox::information(this, "Suppression", "Sélectionnez d'abord un entrepôt."); return; }
     if (QMessageBox::question(this, "Suppression", "Voulez-vous supprimer cet entrepôt ?", QMessageBox::Yes | QMessageBox::No) == QMessageBox::Yes) entrepotsTable_->removeRow(row);
@@ -736,8 +713,7 @@ void MainWindow::actualiserEntrepots() { rechargerDepuisBase(3); rechercheEntrep
 
 void MainWindow::ajouterLivraison() { ajouterLigne(livraisonsTable_, "LIV", "Nouveau : livraison"); }
 void MainWindow::modifierLivraison() { modifierLigne(livraisonsTable_, "Modifier : livraison"); }
-void MainWindow::supprimerLivraison()
-{
+void MainWindow::supprimerLivraison() {
     int row = livraisonsTable_->currentRow();
     if (row < 0) { QMessageBox::information(this, "Suppression", "Sélectionnez d'abord une livraison."); return; }
     if (QMessageBox::question(this, "Suppression", "Voulez-vous supprimer cette livraison ?", QMessageBox::Yes | QMessageBox::No) == QMessageBox::Yes) livraisonsTable_->removeRow(row);
@@ -747,8 +723,7 @@ void MainWindow::actualiserLivraisons() { rechargerDepuisBase(7); rechercheLivra
 
 void MainWindow::ajouterItineraire() { ajouterLigne(itinerairesTable_, "ITI", "Nouveau : itinéraire"); }
 void MainWindow::modifierItineraire() { modifierLigne(itinerairesTable_, "Modifier : itinéraire"); }
-void MainWindow::supprimerItineraire()
-{
+void MainWindow::supprimerItineraire() {
     int row = itinerairesTable_->currentRow();
     if (row < 0) { QMessageBox::information(this, "Suppression", "Sélectionnez d'abord un itinéraire."); return; }
     if (QMessageBox::question(this, "Suppression", "Voulez-vous supprimer cet itinéraire ?", QMessageBox::Yes | QMessageBox::No) == QMessageBox::Yes) itinerairesTable_->removeRow(row);
@@ -758,8 +733,7 @@ void MainWindow::actualiserItineraires() { rechargerDepuisBase(4); rechercheItin
 
 void MainWindow::ajouterIncident() { ajouterLigne(incidentsTable_, "INC", "Nouveau : incident"); }
 void MainWindow::modifierIncident() { modifierLigne(incidentsTable_, "Modifier : incident"); }
-void MainWindow::supprimerIncident()
-{
+void MainWindow::supprimerIncident() {
     int row = incidentsTable_->currentRow();
     if (row < 0) { QMessageBox::information(this, "Suppression", "Sélectionnez d'abord un incident."); return; }
     if (QMessageBox::question(this, "Suppression", "Voulez-vous supprimer cet incident ?", QMessageBox::Yes | QMessageBox::No) == QMessageBox::Yes) {
@@ -772,8 +746,7 @@ void MainWindow::actualiserIncidents() { rechargerDepuisBase(8); rechercheIncide
 
 void MainWindow::ajouterMaintenance() { ajouterLigne(maintenanceTable_, "MAI", "Nouveau : intervention de maintenance"); }
 void MainWindow::modifierMaintenance() { modifierLigne(maintenanceTable_, "Modifier : intervention de maintenance"); }
-void MainWindow::supprimerMaintenance()
-{
+void MainWindow::supprimerMaintenance() {
     int row = maintenanceTable_->currentRow();
     if (row < 0) { QMessageBox::information(this, "Suppression", "Sélectionnez d'abord une maintenance."); return; }
     if (QMessageBox::question(this, "Suppression", "Voulez-vous supprimer cette maintenance ?", QMessageBox::Yes | QMessageBox::No) == QMessageBox::Yes) {
@@ -804,20 +777,13 @@ QList<ChampFormulaire> MainWindow::champsPour(QTableWidget* table) const
     if (table == chauffeursTable_) return { champ("ID", T::LectureSeule), champ("Nom", T::Texte, {}, {}, true), champ("Téléphone"), champ("Permis", T::Choix, {"B", "C", "C1", "MOTO"}), champ("Véhicule", T::Choix, avecAucun(valeursDeColonne(vehiculesTable_, 0))), champ("Statut", T::Choix, {"Disponible", "En livraison", "En congé", "Indisponible"}), avecDefaut(champ("Expérience", T::Nombre, {}, " ans"), "3 ans") };
     if (table == entrepotsTable_) return { champ("ID", T::LectureSeule), champ("Nom", T::Texte, {}, {}, true), champ("Ville", T::ChoixEditable, VILLES), champ("Capacité", T::Nombre, {}, " colis"), champ("Occupation", T::Nombre, {}, " colis"), champ("Statut", T::Choix, {"Actif", "Disponible", "Presque plein", "Plein", "Inactif"}) };
     if (table == itinerairesTable_) return { champ("ID", T::LectureSeule), champ("Départ", T::Choix, villesDuReseau(), {}, true), champ("Destination", T::Choix, villesDuReseau(), {}, true), champ("Distance", T::Nombre, {}, " km"), champ("Durée (ex : 8h 30)"), champ("Statut", T::Choix, {"Planifié", "Actif", "Optimisé", "Terminé"}), champ("Trajet (calculé)", T::LectureSeule) };
-    
-    // [CORRECTION] Utilisation de la colonne 2 (Nom) pour le client
     if (table == commandesTable_) return { champ("Commande", T::LectureSeule), champ("Client", T::Choix, valeursDeColonne(clientsTable_, 2), {}, true), champ("Destination", T::ChoixEditable, VILLES), champ("Statut", T::Choix, {"En attente", "En cours", "En transit", "Livrée", "Incident", "Annulée"}), champ("Date", T::Date), champ("Montant", T::Nombre, {}, " Ar") };
-    
     if (table == colisTable_) return { champ("ID Colis", T::LectureSeule), champ("Commande", T::Choix, valeursDeColonne(commandesTable_, 0, true), {}, true), champ("Type", T::ChoixEditable, {"Standard", "Fragile", "Volumineux"}), avecDecimale(champ("Poids", T::Nombre, {}, " kg")), champ("Statut", T::Choix, {"En attente", "En cours", "En transit", "Livré", "Incident"}), champ("Destination", T::ChoixEditable, VILLES), champ("Date", T::Date) };
     
-    // [CORRECTION] Utilisation de la colonne 1 (Nom/Immatriculation) pour chauffeur et véhicule
-    if (table == livraisonsTable_) return { champ("ID", T::LectureSeule), champ("Commande", T::Choix, valeursDeColonne(commandesTable_, 0, true), {}, true), champ("Client (selon la commande)", T::LectureSeule), champ("Chauffeur", T::Choix, avecAucun(valeursDeColonne(chauffeursTable_, 1))), champ("Véhicule", T::Choix, avecAucun(valeursDeColonne(vehiculesTable_, 1))), champ("Destination", T::ChoixEditable, VILLES), champ("Statut", T::Choix, {"Planifiée", "En cours", "En transit", "Livrée", "Incident", "Annulée"}) };
-    
-    // [CORRECTION] Utilisation de la colonne 1 (Immatriculation/Nom) pour véhicule et chauffeur
-    if (table == incidentsTable_) return { champ("ID", T::LectureSeule), champ("Date", T::Date), champ("Type", T::ChoixEditable, {"Panne", "Accident", "Retard", "Autre"}, {}, true), champ("Véhicule", T::Choix, avecAucun(valeursDeColonne(vehiculesTable_, 1))), champ("Chauffeur", T::Choix, avecAucun(valeursDeColonne(chauffeursTable_, 1))), champ("Description", T::Texte, {}, {}, true), champ("Statut", T::Choix, {"Ouvert", "Traité", "Clos"}) };
-    
-    // [CORRECTION] Utilisation de la colonne 1 (Immatriculation) pour véhicule
-    if (table == maintenanceTable_) return { champ("ID", T::LectureSeule), champ("Véhicule", T::Choix, valeursDeColonne(vehiculesTable_, 1), {}, true), champ("Type", T::ChoixEditable, {"Révision moteur", "Vidange", "Freins", "Pneus", "Révision générale"}, {}, true), champ("Date", T::Date), champ("Kilométrage", T::Nombre, {}, " km"), champ("Coût", T::Nombre, {}, " Ar"), champ("Statut", T::Choix, {"Planifiée", "En cours", "Terminée"}) };
+    // [LOGIQUE MÉTIER] Utilisation des listes combinées pour une meilleure identification
+    if (table == livraisonsTable_) return { champ("ID", T::LectureSeule), champ("Commande", T::Choix, valeursDeColonne(commandesTable_, 0, true), {}, true), champ("Client (selon la commande)", T::LectureSeule), champ("Chauffeur", T::Choix, avecAucun(valeursDeColonne(chauffeursTable_, 1))), champ("Véhicule", T::Choix, avecAucun(valeursDeVehicules(vehiculesTable_))), champ("Destination", T::ChoixEditable, VILLES), champ("Statut", T::Choix, {"Planifiée", "En cours", "En transit", "Livrée", "Incident", "Annulée"}) };
+    if (table == incidentsTable_) return { champ("ID", T::LectureSeule), champ("Date", T::Date), champ("Type", T::ChoixEditable, {"Panne", "Accident", "Retard", "Autre"}, {}, true), champ("Véhicule", T::Choix, avecAucun(valeursDeVehicules(vehiculesTable_))), champ("Chauffeur", T::Choix, avecAucun(valeursDeColonne(chauffeursTable_, 1))), champ("Description", T::Texte, {}, {}, true), champ("Statut", T::Choix, {"Ouvert", "Traité", "Clos"}) };
+    if (table == maintenanceTable_) return { champ("ID", T::LectureSeule), champ("Véhicule", T::Choix, valeursDeVehicules(vehiculesTable_), {}, true), champ("Type", T::ChoixEditable, {"Révision moteur", "Vidange", "Freins", "Pneus", "Révision générale"}, {}, true), champ("Date", T::Date), champ("Kilométrage", T::Nombre, {}, " km"), champ("Coût", T::Nombre, {}, " Ar"), champ("Statut", T::Choix, {"Planifiée", "En cours", "Terminée"}) };
     
     return {};
 }
@@ -1114,7 +1080,7 @@ void MainWindow::actualiserTableauDeBord()
 }
 
 // ================================================================
-// AFFECTATION AUTOMATIQUE & FIN DE LIVRAISON
+// AFFECTATION AUTOMATIQUE & FIN DE LIVRAISON (LOGIQUE MÉTIER RENFORCÉE)
 // ================================================================
 void MainWindow::affecterAutomatiquement()
 {
@@ -1161,14 +1127,30 @@ void MainWindow::affecterAutomatiquement()
         if (!resultat.reussie) { QMessageBox::warning(this, "Affectation impossible", QString::fromStdString(resultat.raisonEchec)); return; }
         int ligneVehicule = -1; for (std::size_t i = 0; i < poolVehicules.size(); ++i) { if (poolVehicules[i] == resultat.vehicule) ligneVehicule = ligneDuVehicule[i]; }
         int ligneChauffeur = -1; for (std::size_t i = 0; i < poolChauffeurs.size(); ++i) { if (poolChauffeurs[i] == resultat.chauffeur) ligneChauffeur = ligneDuChauffeur[i]; }
-        const QString codeVehicule  = texteDe(vehiculesTable_, ligneVehicule, 0);
-        const QString codeChauffeur = texteDe(chauffeursTable_, ligneChauffeur, 0);
-        auto definir = [](QTableWidget* table, int l, int c, const QString& valeur) { if (QTableWidgetItem* item = table->item(l, c)) item->setText(valeur); else table->setItem(l, c, new QTableWidgetItem(valeur)); };
-        definir(livraisonsTable_, ligne, 3, codeChauffeur); definir(livraisonsTable_, ligne, 4, codeVehicule); definir(livraisonsTable_, ligne, 6, "En cours");
-        definir(vehiculesTable_,  ligneVehicule,  5, "En mission"); definir(chauffeursTable_, ligneChauffeur, 4, codeVehicule); definir(chauffeursTable_, ligneChauffeur, 5, "En livraison");
-        for (int r = 0; r < commandesTable_->rowCount(); ++r) { if (sansCette(texteDe(commandesTable_, r, 0)) == codeCommande) definir(commandesTable_, r, 3, "En cours"); }
+        
+        // [LOGIQUE MÉTIER] Mise à jour synchronisée des statuts et des références croisées
+        const QString nomChauffeur = texteDe(chauffeursTable_, ligneChauffeur, 1);
+        const QString vehiculeCombine = texteDe(vehiculesTable_, ligneVehicule, 2) + " " + 
+                                        texteDe(vehiculesTable_, ligneVehicule, 3) + " (" + 
+                                        texteDe(vehiculesTable_, ligneVehicule, 1) + ")";
+
+        auto definir = [](QTableWidget* table, int l, int c, const QString& valeur) {
+            if (QTableWidgetItem* item = table->item(l, c)) item->setText(valeur);
+            else table->setItem(l, c, new QTableWidgetItem(valeur));
+        };
+
+        definir(livraisonsTable_, ligne, 3, nomChauffeur);
+        definir(livraisonsTable_, ligne, 4, vehiculeCombine);
+        definir(livraisonsTable_, ligne, 6, "En cours");
+        definir(vehiculesTable_, ligneVehicule, 5, "En mission");
+        definir(chauffeursTable_, ligneChauffeur, 4, vehiculeCombine);
+        definir(chauffeursTable_, ligneChauffeur, 5, "En livraison");
+        
+        for (int r = 0; r < commandesTable_->rowCount(); ++r) { 
+            if (sansCette(texteDe(commandesTable_, r, 0)) == codeCommande) definir(commandesTable_, r, 3, "En cours"); 
+        }
         QMessageBox::information(this, "Affectation réussie", QString("Livraison %1 (commande %2 : %3 kg%4)\n\nVéhicule : %5\nChauffeur : %6\nScore : %7")
-            .arg(texteDe(livraisonsTable_, ligne, 0), codeCommande).arg(poids, 0, 'f', 1).arg(frigorifique ? ", froid" : "").arg(codeVehicule, codeChauffeur).arg(resultat.score, 0, 'f', 1));
+            .arg(texteDe(livraisonsTable_, ligne, 0), codeCommande).arg(poids, 0, 'f', 1).arg(frigorifique ? ", froid" : "").arg(vehiculeCombine, nomChauffeur).arg(resultat.score, 0, 'f', 1));
     } catch (const std::exception& e) { QMessageBox::warning(this, "Affectation", QString::fromUtf8(e.what())); }
 }
 
@@ -1181,14 +1163,41 @@ void MainWindow::terminerLivraison()
     auto sansCette = [](QString texte) { texte = texte.trimmed(); if (texte.startsWith('#')) texte.remove(0, 1); return texte; };
     const QString codeLivraison = texteDe(livraisonsTable_, ligne, 0);
     const QString codeCommande  = sansCette(texteDe(livraisonsTable_, ligne, 1));
-    const QString codeChauffeur = texteDe(livraisonsTable_, ligne, 3);
-    const QString codeVehicule  = texteDe(livraisonsTable_, ligne, 4);
-    const auto reponse = QMessageBox::question(this, "Terminer la livraison", QString("Marquer la livraison %1 comme livrée ?\n\nLe véhicule %2 et le chauffeur %3 redeviennent disponibles.").arg(codeLivraison, codeVehicule, codeChauffeur), QMessageBox::Yes | QMessageBox::No);
+    
+    // [LOGIQUE MÉTIER] Récupération des noms pour la libération des ressources
+    const QString nomChauffeur = texteDe(livraisonsTable_, ligne, 3);
+    const QString vehiculeCombine = texteDe(livraisonsTable_, ligne, 4);
+
+    // Extraire l'immatriculation du format "Marque Modele (IMMAT)"
+    QRegularExpression re("\\(([^)]+)\\)");
+    QRegularExpressionMatch match = re.match(vehiculeCombine);
+    QString immat = match.hasMatch() ? match.captured(1) : vehiculeCombine;
+
+    const auto reponse = QMessageBox::question(this, "Terminer la livraison", QString("Marquer la livraison %1 comme livrée ?\n\nLe véhicule %2 et le chauffeur %3 redeviennent disponibles.").arg(codeLivraison, immat, nomChauffeur), QMessageBox::Yes | QMessageBox::No);
     if (reponse != QMessageBox::Yes) return;
-    auto definir = [](QTableWidget* table, int l, int c, const QString& valeur) { if (QTableWidgetItem* item = table->item(l, c)) item->setText(valeur); else table->setItem(l, c, new QTableWidgetItem(valeur)); };
+    
+    auto definir = [](QTableWidget* table, int l, int c, const QString& valeur) {
+        if (QTableWidgetItem* item = table->item(l, c)) item->setText(valeur);
+        else table->setItem(l, c, new QTableWidgetItem(valeur));
+    };
+
     definir(livraisonsTable_, ligne, 6, "Livrée");
-    for (int r = 0; r < vehiculesTable_->rowCount(); ++r) { if (texteDe(vehiculesTable_, r, 0) == codeVehicule) definir(vehiculesTable_, r, 5, "Disponible"); }
-    for (int r = 0; r < chauffeursTable_->rowCount(); ++r) { if (texteDe(chauffeursTable_, r, 0) == codeChauffeur) { definir(chauffeursTable_, r, 5, "Disponible"); definir(chauffeursTable_, r, 4, "Aucun"); } }
+
+    // Libération du véhicule
+    for (int r = 0; r < vehiculesTable_->rowCount(); ++r) {
+        if (texteDe(vehiculesTable_, r, 1) == immat) {
+            definir(vehiculesTable_, r, 5, "Disponible");
+        }
+    }
+
+    // Libération du chauffeur
+    for (int r = 0; r < chauffeursTable_->rowCount(); ++r) {
+        if (texteDe(chauffeursTable_, r, 1) == nomChauffeur) {
+            definir(chauffeursTable_, r, 5, "Disponible");
+            definir(chauffeursTable_, r, 4, "Aucun");
+        }
+    }
+
     bool commandeTerminee = true;
     for (int r = 0; r < livraisonsTable_->rowCount(); ++r) {
         if (sansCette(texteDe(livraisonsTable_, r, 1)) != codeCommande) continue;
@@ -1199,7 +1208,7 @@ void MainWindow::terminerLivraison()
         for (int r = 0; r < commandesTable_->rowCount(); ++r) { if (sansCette(texteDe(commandesTable_, r, 0)) == codeCommande) definir(commandesTable_, r, 3, "Livrée"); }
         for (int r = 0; r < colisTable_->rowCount(); ++r) { if (sansCette(texteDe(colisTable_, r, 1)) == codeCommande) definir(colisTable_, r, 4, "Livré"); }
     }
-    QMessageBox::information(this, "Livraison terminée", QString("La livraison %1 est terminée.\n\nVéhicule %2 et chauffeur %3 : de nouveau disponibles.\nCommande %4 : %5").arg(codeLivraison, codeVehicule, codeChauffeur, codeCommande, commandeTerminee ? QString("livrée (colis marqués « Livré »).") : QString("d'autres livraisons restent à effectuer.")));
+    QMessageBox::information(this, "Livraison terminée", QString("La livraison %1 est terminée.\n\nVéhicule %2 et chauffeur %3 : de nouveau disponibles.\nCommande %4 : %5").arg(codeLivraison, immat, nomChauffeur, codeCommande, commandeTerminee ? QString("livrée (colis marqués « Livré »).") : QString("d'autres livraisons restent à effectuer.")));
 }
 
 // ================================================================

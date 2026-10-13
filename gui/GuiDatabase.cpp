@@ -127,41 +127,36 @@ namespace
               col(2, "destination", Genre::Texte, true), col(3, "distance_km", Genre::Km), col(4, "duree_minutes", Genre::Duree),
               col(5, "statut", Genre::Code), col(6, "trajet") }};
 
-        // [CORRECTION] Commandes : référence client par NOM au lieu de CODE
         static const Spec commandes{
             "commandes", "reference", "CMD", nullptr,
             { cleCol("reference", Genre::Diese),
-              ref(1, "client_id", "clients", "nom", true),  // <-- CHANGÉ : "nom" au lieu de "code"
+              ref(1, "client_id", "clients", "nom", true),
               col(2, "ville_livraison"), copie(2, "adresse_livraison", Genre::Texte, true),
               col(3, "statut", Genre::Code), col(4, "date_commande", Genre::Date, true), col(5, "montant", Genre::Ar) }};
 
-        // [CORRECTION] Colis : référence commande par référence
         static const Spec colis{
             "colis", "reference", "COL", nullptr,
             { cleCol("reference"), ref(1, "commande_id", "commandes", "reference", true), col(2, "type_colis"),
               col(3, "poids_kg", Genre::Kg), col(4, "statut", Genre::Code), col(5, "destination"), col(6, "date_colis", Genre::Date) }};
 
-        // [CORRECTION] Livraisons : références par NOM (client, chauffeur) et immatriculation (véhicule)
         static const Spec livraisons{
             "livraisons", "code", "LIV", nullptr,
             { cleCol(), ref(1, "commande_id", "commandes", "reference", true),
               calculee(2, "client", "(SELECT cl.nom FROM commandes cm JOIN clients cl ON cl.id = cm.client_id WHERE cm.id = livraisons.commande_id)"),
-              ref(3, "chauffeur_id", "chauffeurs", "nom"),  // <-- CHANGÉ : "nom" au lieu de "code"
-              ref(4, "vehicule_id", "vehicules", "immatriculation"),  // <-- CHANGÉ : "immatriculation" au lieu de "code"
+              ref(3, "chauffeur_id", "chauffeurs", "nom"),
+              ref(4, "vehicule_id", "vehicules", "immatriculation"),
               col(5, "adresse_arrivee"), col(6, "statut", Genre::Code, true) }};
 
-        // [CORRECTION] Incidents : références par immatriculation (véhicule) et nom (chauffeur)
         static const Spec incidents{
             "incidents", "code", "INC", nullptr,
             { cleCol(), col(1, "date_incident", Genre::Date, true), col(2, "type", Genre::Texte, true),
-              ref(3, "vehicule_id", "vehicules", "immatriculation"),  // <-- CHANGÉ : "immatriculation" au lieu de "code"
-              ref(4, "chauffeur_id", "chauffeurs", "nom"),  // <-- CHANGÉ : "nom" au lieu de "code"
+              ref(3, "vehicule_id", "vehicules", "immatriculation"),
+              ref(4, "chauffeur_id", "chauffeurs", "nom"),
               col(5, "description", Genre::Texte, true), col(6, "statut", Genre::Code, true) }};
 
-        // [CORRECTION] Maintenance : référence par immatriculation
         static const Spec maintenance{
             "maintenance", "code", "MAI", nullptr,
-            { cleCol(), ref(1, "vehicule_id", "vehicules", "immatriculation", true),  // <-- CHANGÉ : "immatriculation" au lieu de "code"
+            { cleCol(), ref(1, "vehicule_id", "vehicules", "immatriculation", true),
               col(2, "type", Genre::Texte, true), col(3, "date_planifiee", Genre::Date), col(4, "kilometrage", Genre::Km),
               col(5, "cout", Genre::Ar), col(6, "statut", Genre::Code, true) }};
 
@@ -473,12 +468,21 @@ ResultatSync GuiDatabase::sauvegarder(TableId id, QTableWidget* table)
         if (manquant) continue;
 
         db.execute("SAVEPOINT sl_ligne");
+        
+        // [LOGIQUE MÉTIER] Extraction de l'immatriculation si le format est "Marque Modele (IMMAT)"
         if (s.cleNaturelle != nullptr) {
             SqlParam cleNaturelle;
             for (std::size_t i = 0; i < colonnes.size(); ++i) {
                 if (std::string(colonnes[i]->db) == s.cleNaturelle) cleNaturelle = params[i];
             }
-            db.execute("UPDATE " + table_ + " SET " + cle_ + " = $1 WHERE " + cle_ + " IS NULL AND " + s.cleNaturelle + " = $2", {cle.toStdString(), cleNaturelle});
+            QString val = QString::fromStdString(cleNaturelle.value_or(""));
+            QRegularExpression re("\\(([^)]+)\\)");
+            QRegularExpressionMatch match = re.match(val);
+            QString immat = match.hasMatch() ? match.captured(1) : val;
+
+            db.execute("UPDATE " + table_ + " SET " + cle_ + " = $1 WHERE " + cle_ +
+                       " IS NULL AND " + s.cleNaturelle + " = $2",
+                       {cle.toStdString(), immat.toStdString()});
         }
 
         if (db.execute(insertion, params)) { db.execute("RELEASE SAVEPOINT sl_ligne"); ++resultat.lignes; }
