@@ -1,6 +1,7 @@
 #include "database/Database.hpp"
 
 #include <cstdlib>
+#include <algorithm>
 
 namespace SmartLogistics
 {
@@ -89,11 +90,11 @@ namespace SmartLogistics
 
     Database::Database()
         : connection_(nullptr),
-          host_(variableOuDefaut("SL_DB_HOST", "::1")),
+          host_(variableOuDefaut("SL_DB_HOST", "127.0.0.1")),
           port_(variableOuDefaut("SL_DB_PORT", "5432")),
           database_(variableOuDefaut("SL_DB_NAME", "smart_logistics")),
           user_(variableOuDefaut("SL_DB_USER", "postgres")),
-          password_(variableOuDefaut("SL_DB_PASSWORD", ""))
+          password_("1234")
     {
     }
 
@@ -106,9 +107,7 @@ namespace SmartLogistics
     {
         disconnect();
 
-        // PQsetdbLogin evite les problemes de caracteres speciaux dans
-        // le mot de passe. Si le mot de passe est vide, on passe nullptr :
-        // libpq cherche alors PGPASSWORD ou le fichier pgpass.conf.
+        // PQsetdbLogin évite les problèmes de caractères spéciaux dans le mot de passe.
         connection_ = PQsetdbLogin(
             host_.c_str(),
             port_.c_str(),
@@ -132,8 +131,7 @@ namespace SmartLogistics
         // Les textes du programme sont en UTF-8 (accents des villes, etc.).
         PQsetClientEncoding(connection_, "UTF8");
 
-        // Masque les NOTICE du serveur (ex : "la colonne existe deja, ignoree")
-        // qui seraient sinon affichees dans la console a chaque connexion.
+        // Masque les NOTICE du serveur (ex : "la colonne existe déjà, ignorée")
         PQsetNoticeProcessor(connection_,
                              [](void*, const char*) {},
                              nullptr);
@@ -203,11 +201,11 @@ namespace SmartLogistics
             connection_,
             sql.c_str(),
             static_cast<int>(params.size()),
-            nullptr,                                   // types deduits par le serveur
+            nullptr,                                   // types déduits par le serveur
             valeurs.empty() ? nullptr : valeurs.data(),
             nullptr,                                   // longueurs (texte)
             nullptr,                                   // formats (texte)
-            0                                          // resultat en texte
+            0                                          // résultat en texte
         );
 
         return QueryResult(brut);
